@@ -1,0 +1,74 @@
+# ============ Python ============
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyright/
+.pyre/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.coverage.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# ============ Node / Frontend ============
+node_modules/
+.pnpm-store/
+frontend/dist/
+frontend/dist-ssr/
+frontend/*.local
+frontend/.vite/
+frontend/coverage/
+
+# ============ 環境変数・秘密情報 ============
+.env
+.env.*
+!.env.example
+
+# ============ データ ============
+# 取得した生データと処理済みデータはgit管理しない
+data/raw/*
+data/processed/*
+!data/raw/.gitkeep
+!data/processed/.gitkeep
+
+# ============ 出力 ============
+outputs/
+*.parquet
+*.sqlite3
+*.db
+
+# ============ OS / エディタ ============
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ============ ログ ============
+*.log
+logs/
