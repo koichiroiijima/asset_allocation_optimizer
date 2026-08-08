@@ -20,9 +20,7 @@ def _save_example(repo: ParquetPriceRepository) -> None:
     """2024-01-02〜07 の価格を保存。adjusted_close に途中 NaN を 1 つ含む。"""
     df = pd.DataFrame(
         {
-            "date": pd.to_datetime(
-                ["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]
-            ),
+            "date": pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"]),
             "asset_id": ["us_equity"] * 4,
             "raw_close": [100.0, 110.0, 105.0, 118.5],
             "adjusted_close": [100.0, 110.0, np.nan, 118.5],
@@ -36,9 +34,7 @@ def _save_example(repo: ParquetPriceRepository) -> None:
     repo.save_series("us_equity", df)
 
 
-def test_series_adjusted_close_points(
-    client: TestClient, tmp_settings: Settings
-) -> None:
+def test_series_adjusted_close_points(client: TestClient, tmp_settings: Settings) -> None:
     """adjusted_close（既定）は欠損でない点のみ返り、NaN は除外される。"""
     _save_example(ParquetPriceRepository(tmp_settings.processed_dir))
     resp = client.get("/api/data/series", params={"asset_id": "us_equity"})
@@ -57,9 +53,7 @@ def test_series_adjusted_close_points(
     ]
 
 
-def test_series_price_uses_raw_close(
-    client: TestClient, tmp_settings: Settings
-) -> None:
+def test_series_price_uses_raw_close(client: TestClient, tmp_settings: Settings) -> None:
     """'price' は raw_close を使う（adjusted_close の NaN は影響しない）。"""
     _save_example(ParquetPriceRepository(tmp_settings.processed_dir))
     resp = client.get(
@@ -71,9 +65,7 @@ def test_series_price_uses_raw_close(
     assert [p["value"] for p in points] == [100.0, 110.0, 105.0, 118.5]
 
 
-def test_series_return_and_cumulative(
-    client: TestClient, tmp_settings: Settings
-) -> None:
+def test_series_return_and_cumulative(client: TestClient, tmp_settings: Settings) -> None:
     """'return' は単純リターン、'cumulative' は累積リターン（NaN 先頭は除外）。"""
     _save_example(ParquetPriceRepository(tmp_settings.processed_dir))
     ret = client.get(
@@ -96,9 +88,7 @@ def test_series_return_and_cumulative(
     assert len(cum) == 2
 
 
-def test_series_frequency_resampling(
-    client: TestClient, tmp_settings: Settings
-) -> None:
+def test_series_frequency_resampling(client: TestClient, tmp_settings: Settings) -> None:
     """frequency='M' で価格は最終観測値、リターンは複利合成される。"""
     _save_example(ParquetPriceRepository(tmp_settings.processed_dir))
     # 月末集約：全点同月なので最終観測日 01-05 に最終観測価格 118.5
@@ -120,9 +110,7 @@ def test_series_missing_data_returns_warning_and_empty(
     assert any("未取得" in w for w in body["warnings"])
 
 
-def test_series_filters_by_date_range(
-    client: TestClient, tmp_settings: Settings
-) -> None:
+def test_series_filters_by_date_range(client: TestClient, tmp_settings: Settings) -> None:
     """start/end で期間を絞る。"""
     _save_example(ParquetPriceRepository(tmp_settings.processed_dir))
     resp = client.get(

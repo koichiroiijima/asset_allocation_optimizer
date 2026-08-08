@@ -88,9 +88,7 @@ def test_annualize_volatility_known_value() -> None:
     """年率ボラティリティ: std(ddof=1) × √252。"""
     returns = pd.Series([0.01, 0.02, -0.005, 0.011])
     expected = returns.std(ddof=1) * math.sqrt(252)
-    assert annualize_volatility(returns, annualization_factor=252) == pytest.approx(
-        expected
-    )
+    assert annualize_volatility(returns, annualization_factor=252) == pytest.approx(expected)
 
 
 def test_resample_monthly_compounds_simple() -> None:
@@ -127,9 +125,7 @@ def test_resample_prices_monthly_takes_last_observed() -> None:
     prices = pd.Series([10.0, 11.0, 10.5, 20.0], index=idx)
     out = resample_prices(prices, frequency="M")
     # 1月→01-31(10.0)、2月→02-02(10.5)、3/4月なし、5月→05-10(20.0)
-    assert out.index.tolist() == pd.to_datetime(
-        ["2024-01-31", "2024-02-02", "2024-05-10"]
-    ).tolist()
+    assert out.index.tolist() == pd.to_datetime(["2024-01-31", "2024-02-02", "2024-05-10"]).tolist()
     assert out.iloc[0] == pytest.approx(10.0)
     assert out.iloc[1] == pytest.approx(10.5)
     assert out.iloc[2] == pytest.approx(20.0)

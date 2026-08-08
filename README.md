@@ -165,15 +165,16 @@ USD建てETFを日本円基準で評価する場合の USD/JPY エクスポー�
 - **完了**: Yahoo Finance からのデータ取得 CLI（`fetch` → raw → 正規化 → processed → `export-csv`、取得履歴の SQLite 記録、raw/processed のスナップショットハッシュ連携）。
 - **完了**: リターン計算・年率換算（`app/domain/returns.py`）。単純／対数リターン、累積リターン（時間加重）、年率換算（geometric 既定）、年率ボラティリティ、頻度リサンプリング（単純=複利合成／対数=和）。定義は [`docs/design.md`](docs/design.md) §6.6 を参照。
 - **完了**: **データ確認 GUI（第1弾）**。`GET /api/data/series` を実データ（processed Parquet）へ配線し、series_type（adjusted_close / price / return / cumulative）と frequency（D/W/M）の再サンプリングを実装。`GET /api/assets` に各資産のデータ状態（取得可否・期間・行数・欠損・出所・取得日時・スナップショットハッシュ）を合成。フロントエンドの「データ」画面で 4 資産の状態一覧表と、選択資産の系列折れ線グラフ（Recharts）を確認できます。
-- **予定（後続工程）**: PyPortfolioOpt を使った最適化エンジン、ルックアヘッド回避のバックテストエンジン、評価指標、分析画面（価格推移・累積リターン・ローリングボラティリティ・相関ヒートマップ）、`/api/jobs` からの data_fetch 配線。
+- **完了**: **最適化サービス（PyPortfolioOpt・`static_allocation`）**。`app/optimization/service.py` に HTTP・DB 非依存の純粋計算層を実装。手法（max_sharpe / min_volatility / efficient_risk / efficient_return）、期待リターン（mean_historical_return / capm_return / ema_historical_return）、共分散（sample_cov / semicovariance / ledoit_wolf）を選択可能。生ウェイトと表示用 `clean_weights` を併記。入力検証・solver 失敗は日本語エラーで返す。固定データの単体テスト付き。
+- **予定（後続工程）**: リバランス最適化（`rebalance_allocation`）、ルックアヘッド回避のバックテストエンジン、評価指標、最適化・バックテストの API/GUI 配線、分析画面（価格推移・累積リターン・ローリングボラティリティ・相関ヒートマップ）、`/api/jobs` からの data_fetch 配線。
 
-バックテスト・最適化の本体は**未実装**です（スタブ）。高い成績を「最適」や「将来も有効」と解釈しないでください。
+バックテストの本体と、最適化の API・GUI 配線は**未実装**です。高い成績を「最適」や「将来も有効」と解釈しないでください。
 
 ## 既知の制限
 
 - 実データ取得は **CLI 経由でのみ**接続しています。API ジョブ／GUI からの取得は未接続です（`/api/jobs` の data_fetch は未配線）。
 - Yahoo Finance のデータは非商用・研究目的に限定（利用規約を確認）。取得間隔は控えめにしてください。
-- 最適化・バックテストの実ロジックは未実装（API/スキーマは検証済みのプレースホルダー）。分析画面（価格推移・相関等）も未実装です。
+- 最適化はサービス層（`static_allocation`）のみ実装済みで、API ルート・GUI・`rebalance_allocation` は未実装。バックテスト実ロジックは未実装（API/スキーマは検証済みのプレースホルダー）。分析画面（価格推移・相関等）も未実装です。
 - アプリは **localhost 利用限定**（初期版）。ネットワーク公開時は認証・認可、CORS、レート制限、APIキーの秘密管理、監査ログを設計してから有効化します。
 - 再現可能な `make test` 相当の全テスト、lint、型チェック、開発サーバー起動は上記「標準コマンド」で実行できます。
 

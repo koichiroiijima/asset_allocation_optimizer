@@ -85,9 +85,7 @@ class PricePipeline:
                 "raw_snapshot_hash": raw_hash,
             }
         except Exception as exc:  # noqa: BLE001 — 資産単位で隔離して記録する
-            self._index.update_fetch_status(
-                row_id, finished_at=finished, rows=0, status="failed"
-            )
+            self._index.update_fetch_status(row_id, finished_at=finished, rows=0, status="failed")
             return {"asset_id": asset_id, "status": "failed", "error": str(exc)}
 
     def run(

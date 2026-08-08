@@ -20,8 +20,9 @@ class FakePipeline:
         self.calls: list[dict[str, object]] = []
         self.closed = False
 
-    def run(self, asset_ids: list[str] | None = None,
-            start: object = None, end: object = None) -> dict[str, object]:
+    def run(
+        self, asset_ids: list[str] | None = None, start: object = None, end: object = None
+    ) -> dict[str, object]:
         self.calls.append({"asset_ids": asset_ids, "start": start, "end": end})
         return {
             "results": [
@@ -65,8 +66,7 @@ def test_fetch_with_assets_and_dates(
 ) -> None:
     """--asset と --start/--end が渡される。"""
     fake = _install(monkeypatch, tmp_settings)
-    code = main(["fetch", "--asset", "us_equity", "--start", "2024-01-01",
-                 "--end", "2024-06-30"])
+    code = main(["fetch", "--asset", "us_equity", "--start", "2024-01-01", "--end", "2024-06-30"])
     assert code == 0
     call = fake.calls[0]
     assert call["asset_ids"] == ["us_equity"]
@@ -96,8 +96,7 @@ def test_export_csv_writes_files(
     repo = ParquetPriceRepository(tmp_settings.processed_dir)
     repo.save_series(
         "us_equity",
-        pd.DataFrame({"date": pd.to_datetime(["2024-01-02"]),
-                      "asset_id": ["us_equity"]}),
+        pd.DataFrame({"date": pd.to_datetime(["2024-01-02"]), "asset_id": ["us_equity"]}),
     )
 
     code = main(["export-csv", "--out", str(tmp_settings.processed_dir)])

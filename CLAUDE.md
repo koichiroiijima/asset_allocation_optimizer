@@ -18,7 +18,8 @@
 - **完了（データ取得フェーズ）**: **Yahoo Finance chart API（query2 ホスト）** を実データソースに採用。データ取得 CLI（`uv run python -m app.cli fetch` / `export-csv`）を実装し、fetch → raw → normalize → processed → export-csv のパイプライン、raw/processed 分離・rawスナップショットハッシュ連携・SQLite の fetch_history 記録・資産単位の失敗隔離を追加。4資産の既定ティッカーを Yahoo で取得確認済み（VTI / BND / VXUS / BNDX、いずれも USD、設定で差し替え可能）。
 - **完了（リターン計算）**: `app/domain/returns.py` に単純／対数／累積リターン、年率換算、年率ボラティリティ、頻度リサンプリング（`resample_returns`・`resample_prices`）を実装。欠損は補完せず NaN、空系列は例外を投げない。固定値テストで既知の数値例と照合。
 - **完了（データ確認 GUI 第1弾）**: フロントエンドの **データ画面**を実装（4資産の候補・データソース・期間・欠損・取得日時・価格種別の一覧表＋系列グラフ）。`GET /api/data/series` を processed Parquet へ配線（series_type=adjusted_close/price/return/cumulative、frequency=D/W/M）、`GET /api/assets` に `data_status` を合成（`AssetDataStatus`）。分析画面は第2弾へ延期。
-- **未実装（後続工程）**: PyPortfolioOpt 最適化、ルックアヘッド回避のバックテストエンジン、評価指標、分析画面、`/api/jobs` からの data_fetch 配線。バックテスト・最適化の本体はスタブ。
+- **完了（最適化サービス）**: **PyPortfolioOpt を使う最適化サービス**（`app/optimization/service.py` の `static_allocation`、HTTP・DB 非依存の純粋計算層）を実装。入出力の型契約を `app/schemas/optimization.py` に定義（`StaticAllocationParams`／`OptimizationResult`、生ウェイト `weights`＋表示用 `clean_weights` を併記）。手法（max_sharpe / min_volatility / efficient_risk / efficient_return）、期待リターン（mean_historical_return / capm_return / ema_historical_return）、共分散（sample_cov / semicovariance / ledoit_wolf）を選択可能。入力検証・solver 失敗は握りつぶさず `OptimizationInputError`（日本語・`origin` 保持）で返す。固定データの単体テスト（`tests/test_optimization.py`）。**rebalance_allocation 分離・最適化 UI/API 配線・互換性表は未着手**。
+- **未実装（後続工程）**: リバランス最適化（`rebalance_allocation`）、ルックアヘッド回避のバックテストエンジン、評価指標、最適化・バックテストの API/GUI 配線、分析画面、`/api/jobs` からの data_fetch 配線。
 - **既知の制約**: 実データ取得は **CLI 経由のみ**（API ジョブ／GUI からの **データ取得** は未接続。GUI は取得済みデータの **閲覧** のみ可能）。Yahoo データは非商用・研究目的に限定し、取得間隔は控えめにする。公開範囲は localhost 限定。
 
 データソースの選定理由（Yahoo query2 採用・query1=429・stooq 辞退）や Adjusted Close / 分配金の扱い、CLI の正確な使い方は `docs/design.md` §6.4 と `README.md` の「データ取得 CLI」を参照。

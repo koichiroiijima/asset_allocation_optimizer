@@ -47,11 +47,12 @@
 - [x] フロントエンド データ画面（資産一覧表＋系列グラフ、series_type / frequency 選択式）
 - [x] データ画面のテスト・API クライアントテスト
 
-## 最適化（未実施）
+## 最適化（static_allocation 実装済み）
 
-- [ ] PyPortfolioOpt 最適化サービスと単体テスト
+- [x] PyPortfolioOpt 最適化サービスと単体テスト（`static_allocation`）
+- [ ] 最適化 API ルート配線（`POST /api/jobs` / 同期エンドポイント）
 - [ ] 手法・パラメータの選択 UI（expected return / covariance / 制約 / リスクフリー金利）
-- [ ] static_allocation / rebalance_allocation の分離
+- [ ] rebalance_allocation（リバランス最適化）の実装
 - [ ] 互換性表・入力範囲・既定値のスキーマ共用
 
 ## バックテスト（未実施）

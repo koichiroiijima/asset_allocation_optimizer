@@ -97,9 +97,7 @@ def test_run_records_fetch_history(tmp_settings: Settings) -> None:
 
 def test_run_isolates_failure(tmp_settings: Settings) -> None:
     """1資産の失敗を隔離し、他資産は成功のまま継続する。"""
-    pipeline = PricePipeline(
-        tmp_settings, provider=FakeProvider(fail={"us_bond"})
-    )
+    pipeline = PricePipeline(tmp_settings, provider=FakeProvider(fail={"us_bond"}))
     try:
         summary = pipeline.run()
     finally:

@@ -33,18 +33,14 @@ def list_assets(settings: SettingsDep) -> AssetListResponse:
         try:
             df = repo.load_series(asset.logical_asset)
         except FileNotFoundError:
-            data_status = AssetDataStatus(
-                logical_asset=asset.logical_asset, available=False
-            )
+            data_status = AssetDataStatus(logical_asset=asset.logical_asset, available=False)
         else:
             status = summarize_series(df)
             manifest = repo.read_manifest(asset.logical_asset)
             status.snapshot_hash = manifest.get("snapshot_hash")
             data_status = status
         result.append(
-            AssetWithStatus.model_validate(
-                {**asset.model_dump(), "data_status": data_status}
-            )
+            AssetWithStatus.model_validate({**asset.model_dump(), "data_status": data_status})
         )
 
     return AssetListResponse(assets=result)

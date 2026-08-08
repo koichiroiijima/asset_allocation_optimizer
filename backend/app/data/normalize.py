@@ -36,9 +36,7 @@ def normalize_prices(frame: pd.DataFrame) -> pd.DataFrame:
     df = frame.copy()
 
     df["date"] = pd.to_datetime(df["date"])
-    df = df.sort_values("date", kind="stable").drop_duplicates(
-        subset=["date"], keep="last"
-    )
+    df = df.sort_values("date", kind="stable").drop_duplicates(subset=["date"], keep="last")
 
     for col in _NUMERIC_COLUMNS:
         if col in df.columns:

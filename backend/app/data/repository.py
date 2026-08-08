@@ -178,14 +178,11 @@ class SqliteIndexRepository:
             )
         return int(cur.lastrowid) if cur.lastrowid is not None else 0
 
-    def update_fetch_status(
-        self, row_id: int, *, finished_at: str, rows: int, status: str
-    ) -> None:
+    def update_fetch_status(self, row_id: int, *, finished_at: str, rows: int, status: str) -> None:
         """fetch_history 行の終了時刻・件数・状態を更新する。"""
         with self._conn:
             self._conn.execute(
-                "UPDATE fetch_history SET finished_at = ?, rows = ?, status = ? "
-                "WHERE id = ?",
+                "UPDATE fetch_history SET finished_at = ?, rows = ?, status = ? WHERE id = ?",
                 (finished_at, rows, status, row_id),
             )
 

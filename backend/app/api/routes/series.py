@@ -33,9 +33,7 @@ SeriesSpecDep = Annotated[SeriesSpec, Depends()]
 _TYPE_COLUMN = {"adjusted_close": "adjusted_close", "price": "raw_close"}
 
 
-def _convert_series(
-    series_type: str, adjusted: pd.Series, raw: pd.Series
-) -> pd.Series:
+def _convert_series(series_type: str, adjusted: pd.Series, raw: pd.Series) -> pd.Series:
     """series_type に応じた系列へ変換して返す（昇順済み Series 入力想定）。"""
     if series_type in _TYPE_COLUMN:
         return adjusted if series_type == "adjusted_close" else raw

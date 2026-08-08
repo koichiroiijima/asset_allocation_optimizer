@@ -22,9 +22,7 @@ def summarize_series(df: pd.DataFrame) -> AssetDataStatus:
 
     想定: `date` は `datetime64`、`asset_id` は単一値。
     """
-    asset_id = (
-        str(df["asset_id"].iloc[0]) if "asset_id" in df.columns and len(df) else ""
-    )
+    asset_id = str(df["asset_id"].iloc[0]) if "asset_id" in df.columns and len(df) else ""
     if "date" in df.columns and len(df):
         dates = pd.to_datetime(df["date"])
     else:

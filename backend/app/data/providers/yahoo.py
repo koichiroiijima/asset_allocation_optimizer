@@ -104,7 +104,7 @@ class YahooPriceProvider:
         chart = payload.get("chart") or {}
         if chart.get("error"):
             raise ProviderDataError(f"Yahoo API error: {chart['error']}")
-        result = (chart.get("result") or [])
+        result = chart.get("result") or []
         if not result:
             raise ProviderDataError(f"Yahoo応答に result が無い: {asset_id}")
         block = result[0]
@@ -115,9 +115,7 @@ class YahooPriceProvider:
         closes: list[float | None] = list(quote.get("close") or [])
         adj_blocks = (block.get("indicators") or {}).get("adjclose") or [{}]
         adjcloses: list[float | None] = list(adj_blocks[0].get("adjclose") or [])
-        dividends: dict[str, dict[str, object]] = (
-            (block.get("events") or {}).get("dividends") or {}
-        )
+        dividends: dict[str, dict[str, object]] = (block.get("events") or {}).get("dividends") or {}
 
         currency = str(meta.get("currency") or "USD")
         tz_name = meta.get("exchangeTimezoneName")
@@ -168,7 +166,7 @@ class YahooPriceProvider:
         except (httpx.HTTPStatusError, ValueError):
             return None
         chart = payload.get("chart") or {}
-        result = (chart.get("result") or [])
+        result = chart.get("result") or []
         if not result:
             return None
         meta = result[0].get("meta") or {}

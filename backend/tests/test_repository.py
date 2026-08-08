@@ -64,9 +64,7 @@ def test_sqlite_schema_created(tmp_path: Path) -> None:
     with repo._conn:  # noqa: SLF001 — テストで内部接続を確認
         tables = {
             row[0]
-            for row in repo._conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            )
+            for row in repo._conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
     assert {"assets", "fetch_history", "jobs", "runs"} <= tables
     repo.close()

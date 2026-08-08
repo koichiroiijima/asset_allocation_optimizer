@@ -50,8 +50,10 @@ def test_export_csv_processed_all(tmp_settings: Settings, sample: pd.DataFrame) 
 def test_export_csv_processed_subset_and_skip(tmp_settings: Settings) -> None:
     """資産指定で絞り込み、存在しない資産の読み込み失敗はスキップされる。"""
     repo = ParquetPriceRepository(tmp_settings.processed_dir)
-    repo.save_series("us_equity", pd.DataFrame({"date": pd.to_datetime(["2024-01-02"]),
-                                                "asset_id": ["us_equity"]}))
+    repo.save_series(
+        "us_equity",
+        pd.DataFrame({"date": pd.to_datetime(["2024-01-02"]), "asset_id": ["us_equity"]}),
+    )
 
     written = export_csv_processed(tmp_settings.processed_dir, asset_ids=["us_equity"])
     assert [p.name for p in written] == ["us_equity.csv"]

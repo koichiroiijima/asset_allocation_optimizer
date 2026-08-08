@@ -30,9 +30,7 @@ def _save_example(repo: ParquetPriceRepository) -> None:
     repo.save_series("us_equity", df)
 
 
-def test_assets_with_data_status(
-    client: TestClient, tmp_settings: Settings
-) -> None:
+def test_assets_with_data_status(client: TestClient, tmp_settings: Settings) -> None:
     """保存済み資産は available=true で期間・欠損・出所・hash を返す。"""
     repo = ParquetPriceRepository(tmp_settings.processed_dir)
     _save_example(repo)
@@ -65,9 +63,7 @@ def test_assets_with_data_status(
     assert unsaved["data_status"]["available"] is False
 
 
-def test_assets_static_fields_present(
-    client: TestClient, tmp_settings: Settings
-) -> None:
+def test_assets_static_fields_present(client: TestClient, tmp_settings: Settings) -> None:
     """静的な資産定義フィールド（表示名・ティッカー等）が返る。"""
     resp = client.get("/api/assets")
     assert resp.status_code == 200
