@@ -1,0 +1,54 @@
+{
+  "chart": {
+    "result": [
+      {
+        "meta": {
+          "currency": "USD",
+          "symbol": "VTI",
+          "exchangeTimezoneName": "America/New_York",
+          "regularMarketPrice": 258.0,
+          "firstTradeDate": 1001548800,
+          "regularMarketTime": 1706749200,
+          "exchangeName": "NMS"
+        },
+        "timestamp": [
+          1706749200,
+          1706835600,
+          1706922000,
+          1707094800
+        ],
+        "indicators": {
+          "quote": [
+            {
+              "close": [
+                258.11,
+                null,
+                259.12,
+                260.0
+              ]
+            }
+          ],
+          "adjclose": [
+            {
+              "adjclose": [
+                260.42,
+                null,
+                261.43,
+                262.31
+              ]
+            }
+          ]
+        },
+        "events": {
+          "dividends": {
+            "1706922000": {
+              "type": "DIVIDEND",
+              "amount": 0.82
+            }
+          }
+        }
+      }
+    ],
+    "error": null
+  }
+}

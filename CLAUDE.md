@@ -10,6 +10,19 @@
 - 価格推移、リターン、リスク、相関、最適ウェイト、累積損益、ドローダウンなどをGUIで確認できるようにする。
 - 本アプリは研究・教育・シミュレーション用であり、個別の投資助言、将来リターンの保証、税務・法務判断を行わない。
 
+## 現在の実装状況（2026-08-08）
+
+進捗を把握しやすいよう、設計メモと重複しない範囲で現状を記録する。詳細は [`docs/design.md`](docs/design.md)・[`README.md`](README.md) を参照。
+
+- **完了（スケルトン）**: プロジェクト構造、Pydantic Settings 設定管理、データレコードと repository 抽象（Parquet + SQLite 索引 + スナップショットハッシュ）、API スキーマとルート（health/assets/series/jobs/runs）、フロントエンド5画面の骨格、テスト基盤（backend ruff/mypy strict/pytest、frontend ESLint/Prettier/tsc/vitest）。
+- **完了（データ取得フェーズ）**: **Yahoo Finance chart API（query2 ホスト）** を実データソースに採用。データ取得 CLI（`uv run python -m app.cli fetch` / `export-csv`）を実装し、fetch → raw → normalize → processed → export-csv のパイプライン、raw/processed 分離・rawスナップショットハッシュ連携・SQLite の fetch_history 記録・資産単位の失敗隔離を追加。4資産の既定ティッカーを Yahoo で取得確認済み（VTI / BND / VXUS / BNDX、いずれも USD、設定で差し替え可能）。
+- **完了（リターン計算）**: `app/domain/returns.py` に単純／対数／累積リターン、年率換算、年率ボラティリティ、頻度リサンプリング（`resample_returns`・`resample_prices`）を実装。欠損は補完せず NaN、空系列は例外を投げない。固定値テストで既知の数値例と照合。
+- **完了（データ確認 GUI 第1弾）**: フロントエンドの **データ画面**を実装（4資産の候補・データソース・期間・欠損・取得日時・価格種別の一覧表＋系列グラフ）。`GET /api/data/series` を processed Parquet へ配線（series_type=adjusted_close/price/return/cumulative、frequency=D/W/M）、`GET /api/assets` に `data_status` を合成（`AssetDataStatus`）。分析画面は第2弾へ延期。
+- **未実装（後続工程）**: PyPortfolioOpt 最適化、ルックアヘッド回避のバックテストエンジン、評価指標、分析画面、`/api/jobs` からの data_fetch 配線。バックテスト・最適化の本体はスタブ。
+- **既知の制約**: 実データ取得は **CLI 経由のみ**（API ジョブ／GUI からの **データ取得** は未接続。GUI は取得済みデータの **閲覧** のみ可能）。Yahoo データは非商用・研究目的に限定し、取得間隔は控えめにする。公開範囲は localhost 限定。
+
+データソースの選定理由（Yahoo query2 採用・query1=429・stooq 辞退）や Adjusted Close / 分配金の扱い、CLI の正確な使い方は `docs/design.md` §6.4 と `README.md` の「データ取得 CLI」を参照。
+
 ## 開発方針
 
 - まず動く最小構成を作り、その後にデータソース、最適化手法、画面を拡張する。
@@ -197,14 +210,14 @@ docs/
 
 ## 実装の進め方
 
-1. README、依存関係、設定ファイル、データモデルを作る。
-2. 小さな固定CSVを使ったデータ正規化とリターン計算を完成させる。
-3. PyPortfolioOptを使った最適化サービスと単体テストを作る。
-4. 先読みを避けるバックテストエンジンと評価指標を作る。
-5. FastAPIのAPIとOpenAPIスキーマを作る。
-6. フロントエンドでデータ確認、最適化、バックテストを順に実装する。
-7. 採用条件を満たす実データソースを1つ接続し、取得失敗・レート制限・データ品質警告を追加する。固定fixtureと実データを混在させない。
-8. E2E確認、ドキュメント、再現手順、サンプル設定を整える。
+1. [完了] README、依存関係、設定ファイル、データモデルを作る。
+2. [完了] 小さな固定CSVを使ったデータ正規化とリターン計算を完成させる。（正規化 `normalize_prices`、リターン計算・年率換算・頻度リサンプリング `app/domain/returns.py` は実装済み）
+3. [未着手] PyPortfolioOptを使った最適化サービスと単体テストを作る。
+4. [未着手] 先読みを避けるバックテストエンジンと評価指標を作る。
+5. [完了] FastAPIのAPIとOpenAPIスキーマを作る。（health/assets/series/jobs/runs の骨格）
+6. [進行中] フロントエンドでデータ確認、最適化、バックテストを順に実装する。（**データ確認 GUI 第1弾＝データ画面は実装済み**。分析・最適化・バックテスト画面は未実装）
+7. [進行中] 採用条件を満たす実データソースを1つ接続し、取得失敗・レート制限・データ品質警告を追加する。固定fixtureと実データを混在させない。（**Yahoo を CLI 経由で接続済み**。レート制限対応・取得失敗時の再試行・データ品質警告、および `/api/jobs` からの data_fetch 配線は未着手）
+8. [未着手] E2E確認、ドキュメント、再現手順、サンプル設定を整える。
 
 各段階で、実装前に小さな設計メモを作り、変更後はテストを実行する。外部データを使うテストは、可能な限り固定した保存データを使い、ネットワークに依存するテストと分離する。
 

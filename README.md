@@ -1,0 +1,187 @@
+# アセット配分最適化アプリ
+
+4資産（米国株式・米国債券・米国を除く株式・米国を除く債券）を対象に、データ収集・ポートフォリオ最適化・バックテスト・可視化を行う**研究用Webアプリケーション**です。
+
+> **免責事項**: 本アプリは研究・教育・シミュレーション用途です。個別の投資助言、将来リターンの保証、税務・法務判断は行いません。バックテストや最適化の結果は仮想シミュレーションであり、約定・税金・流動性・為替・価格インパクトを完全には再現しません。
+
+詳細な設計方針・データモデル・未確定事項は [`docs/design.md`](docs/design.md)、実装の進捗は [`docs/TODO.md`](docs/TODO.md) を参照してください。
+
+---
+
+## 構成
+
+| ディレクトリ | 内容 |
+| --- | --- |
+| `backend/` | FastAPI + Python（api / domain / data / optimization / backtest / schemas） |
+| `frontend/` | React + TypeScript + Vite（5画面、Recharts） |
+| `data/` | 取得データ（raw / processed / fixtures）。`data/*` は git 管理外 |
+| `outputs/` | 最適化・バックテスト成果物。git 管理外 |
+| `docs/design.md` | 設計メモ |
+
+## 必要なツール
+
+| ツール | 用途 | 備考 |
+| --- | --- | --- |
+| [uv](https://docs.astral.sh/uv/) | Python 3.11 の調達と依存管理 | ローカルが Python 3.10 でも uv が 3.11 を用意 |
+| [npm](https://www.npmjs.com/) | frontend の依存管理 | `package-lock.json` をコミット |
+
+`uv` が未導入の場合は、公式のインストール手順に従って導入してください（例: `curl -LsSf https://astral.sh/uv/install.sh | sh`）。
+
+## セットアップ
+
+```bash
+make setup
+```
+
+これは以下と同等です。
+
+```bash
+cd backend && uv sync      # .venv に 3.11 を導入し依存をインストール
+cd frontend && npm install # node_modules をインストール
+```
+
+環境変数のサンプルは [`.env.example`](.env.example) にあります。実際の値は `.env` にコピーして設定してください（`.env` は gitignore 済み）。プレフィックスは `ASSET_ALLOC__` です。
+
+## 標準コマンド
+
+| コマンド | 内容 |
+| --- | --- |
+| `make test` | backend と frontend の全テスト |
+| `make test-backend` | `cd backend && uv run pytest` |
+| `make test-frontend` | `cd frontend && npm run test` |
+| `make lint` | backend (ruff) + frontend (eslint) |
+| `make typecheck` | backend (mypy) + frontend (tsc) |
+| `make format` | backend (ruff format) + frontend (prettier) |
+| `make dev` | 開発サーバーを並列起動（backend :8000 + frontend :5173） |
+| `make dev-backend` | FastAPI（Uvicorn + reload） |
+| `make dev-frontend` | Vite dev server |
+| `make reset-data` | 取得データ・成果物・DB を削除（fixtures は対象外） |
+
+個別で実行する場合:
+
+```bash
+# backend
+cd backend
+uv run pytest              # テスト
+uv run ruff check .        # lint
+uv run ruff format .       # format
+uv run mypy app            # 型チェック
+
+# frontend
+cd frontend
+npm run test               # テスト (vitest)
+npm run lint               # lint (eslint)
+npm run typecheck          # 型チェック (tsc --noEmit)
+npm run format             # format (prettier)
+npm run build              # 本番ビルド
+```
+
+### 開発サーバー
+
+```bash
+make dev
+# または2つのターミナルで
+make dev-backend   # http://localhost:8000  (OpenAPI: /docs)
+make dev-frontend  # http://localhost:5173 (/api を :8000 へプロキシ)
+```
+
+プルークチェック: `curl http://localhost:8000/api/health` が `{"status":"ok",...}` を返せば接続成功です。
+
+## API 一覧（初期スケジュール）
+
+CLAUDE.md の API 設計に基づく初期エンドポイント。最適化・バックテストはジョブIDを返す非同期方式です（現在はスキーマ検証用のプレースホルダー）。
+
+| メソッド | パス | 内容 | 状態 |
+| --- | --- | --- | --- |
+| `GET` | `/api/health` | 稼働状態 | 実装済み |
+| `GET` | `/api/assets` | 資産定義・候補商品・**データ状態** | 実装済み（processed から状態を合成） |
+| `GET` | `/api/data/series` | 正規化済み系列（価格・リターン・累積、D/W/M 再サンプリング、NaN 除外） | 実装済み（processed に配線） |
+| `POST` | `/api/jobs` | ジョブ作成（`data_fetch` / `optimization` / `backtest`） | スキーマのみ（未配線） |
+| `GET` | `/api/jobs/{job_id}` | ジョブ状態（queued/running/succeeded/failed/cancelled） |
+| `POST` | `/api/jobs/{job_id}/cancel` | 実行中ジョブのキャンセル |
+| `GET` | `/api/runs/{run_id}` | 実行結果の概要 |
+| `GET` | `/api/runs/{run_id}/equity-curve` | 累積損益 |
+| `GET` | `/api/runs/{run_id}/trades` | 取引一覧 |
+
+OpenAPI スキーマは起動後に `http://localhost:8000/docs` で確認できます。
+
+## 4資産のマッピング
+
+論理資産は設定ファイル（`backend/app/config/assets.default.json`）で定義します。ティッカーは変更可能です（`assets.default.json` を編集）。
+
+| 論理資産 | 表示名 | 既定ティッカー | 対象指数 | 通貨 |
+| --- | --- | --- | --- | --- |
+| `us_equity` | 米国株式 | `VTI` | CRSP US Total Market Index | USD |
+| `us_bond` | 米国債券 | `BND` | Bloomberg U.S. Aggregate Bond Index | USD |
+| `ex_us_equity` | 米国を除く株式 | `VXUS` | FTSE Global All Cap ex US Index | USD |
+| `ex_us_bond` | 米国を除く債券 | `BNDX` | Bloomberg Global Aggregate ex-USD Index | USD |
+
+> 既定ティッカーは **Yahoo Finance chart API で取得確認済み**です（データソースの選定理由・Adjusted Close / 分配金の扱いは [`docs/design.md`](docs/design.md) の §6.4 を参照）。ティッカーは設定で変更可能で、`sync` を前提にコードへ固定していません。
+
+## データ取得 CLI
+
+4資産の価格データは **Yahoo Finance chart API（query2 ホスト）** から取得します。取得は CLI 経由で行い、raw（取得直後）と processed（正規化済み）の Parquet ＋ CSV エクスポートを生成します。**API ジョブ／GUI からの取得は現在未接続です。**
+
+```bash
+cd backend
+
+# 全4資産（VTI / BND / VXUS / BNDX）の全履歴を取得して保存
+uv run python -m app.cli fetch
+
+# 特定資産・期間を指定
+uv run python -m app.cli fetch --asset us_equity --asset us_bond \
+    --start 2024-01-01 --end 2024-06-30
+
+# 正規化済み Parquet を CSV へエクスポート（既定: processed ディレクトリ）
+uv run python -m app.cli export-csv --out ../data/processed
+
+# ヘルプ / バージョン
+uv run python -m app.cli --help
+uv run python -m app.cli --version
+```
+
+出力:
+- `data/raw/{asset}.parquet` ＋ `data/raw/{asset}.snapshot.json` — 取得直後の原本（スナップショットハッシュ付き）
+- `data/processed/{asset}.parquet` — 正規化済み（`raw_snapshot_hash` で raw スナップショットを参照）
+- `data/processed/{asset}.csv` — CSV エクスポート（UTF-8・日付 `%Y-%m-%d`）
+- SQLite の `fetch_history` テーブル — 取得履歴（`started_at`/`finished_at`/`rows`/`status`）
+
+> ⚠️ **利用上の注意**: Yahoo Finance のデータは**非商用・研究目的**の利用に限定し、再配布しないでください（利用規約を確認してください）。取得間隔は控えめにしてください。`query1` ホストは 429 を返すため、本実装は `query2` を使用します。
+
+## 通貨・FX 方針（初期版）
+
+- `portfolio_base_currency` = **JPY**（ポートフォリオ基準通貨。初期版の必須設定）
+- `instrument_trading_currency` = **USD**（各 ETF の取引通貨）
+- `underlying_currency_exposure` = **USD**（裏付け資産の通貨エクスポージャー）
+- `fx_policy` = **unhedged**（為替ヘッジなし）
+
+USD建てETFを日本円基準で評価する場合の USD/JPY エクスポージャーは、アプリ内で明示します。
+
+## 現在の実装状態
+
+初期ひな型（データが動き、テストが通る全体の骨格）と、4資産のデータ取得 CLI、**データ確認 GUI（第1弾）** を構築済みです。具体的には:
+
+- **完了**: プロジェクト構造、設定管理（Pydantic Settings）、データレコードと repository 抽象（Parquet + SQLite 索引 + スナップショットハッシュ）、API スキーマとルート、フロントエンド5画面の骨格、テスト基盤。
+- **完了**: Yahoo Finance からのデータ取得 CLI（`fetch` → raw → 正規化 → processed → `export-csv`、取得履歴の SQLite 記録、raw/processed のスナップショットハッシュ連携）。
+- **完了**: リターン計算・年率換算（`app/domain/returns.py`）。単純／対数リターン、累積リターン（時間加重）、年率換算（geometric 既定）、年率ボラティリティ、頻度リサンプリング（単純=複利合成／対数=和）。定義は [`docs/design.md`](docs/design.md) §6.6 を参照。
+- **完了**: **データ確認 GUI（第1弾）**。`GET /api/data/series` を実データ（processed Parquet）へ配線し、series_type（adjusted_close / price / return / cumulative）と frequency（D/W/M）の再サンプリングを実装。`GET /api/assets` に各資産のデータ状態（取得可否・期間・行数・欠損・出所・取得日時・スナップショットハッシュ）を合成。フロントエンドの「データ」画面で 4 資産の状態一覧表と、選択資産の系列折れ線グラフ（Recharts）を確認できます。
+- **予定（後続工程）**: PyPortfolioOpt を使った最適化エンジン、ルックアヘッド回避のバックテストエンジン、評価指標、分析画面（価格推移・累積リターン・ローリングボラティリティ・相関ヒートマップ）、`/api/jobs` からの data_fetch 配線。
+
+バックテスト・最適化の本体は**未実装**です（スタブ）。高い成績を「最適」や「将来も有効」と解釈しないでください。
+
+## 既知の制限
+
+- 実データ取得は **CLI 経由でのみ**接続しています。API ジョブ／GUI からの取得は未接続です（`/api/jobs` の data_fetch は未配線）。
+- Yahoo Finance のデータは非商用・研究目的に限定（利用規約を確認）。取得間隔は控えめにしてください。
+- 最適化・バックテストの実ロジックは未実装（API/スキーマは検証済みのプレースホルダー）。分析画面（価格推移・相関等）も未実装です。
+- アプリは **localhost 利用限定**（初期版）。ネットワーク公開時は認証・認可、CORS、レート制限、APIキーの秘密管理、監査ログを設計してから有効化します。
+- 再現可能な `make test` 相当の全テスト、lint、型チェック、開発サーバー起動は上記「標準コマンド」で実行できます。
+
+## 開発方針
+
+詳細は [`CLAUDE.md`](CLAUDE.md) と [`docs/design.md`](docs/design.md) にあります。主な方針:
+
+- 数値計算ロジックは UI から分離し、Python の純粋なサービス／ドメイン層でテスト可能にする。
+- 取得データをそのまま信頼せず、重複日付・欠損・異常値・配当・分割・営業日ずれを検証する。
+- ルックアヘッド（未来情報の混入）を避けるバックテストを厳密に守る。
+- 金融データの値や定義を推測で補完せず、取得できない場合はエラー・警告・代替案を返す。

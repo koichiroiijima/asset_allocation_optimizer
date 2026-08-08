@@ -1,0 +1,263 @@
+# 設計メモ（アセット配分最適化アプリ）
+
+この文書は実装上の設計判断を記録する。詳細な金融モデル仕様・データソース選定はここに集約する。実装の進め方・ガイドラインは `CLAUDE.md` を参照（矛盾する場合はユーザーの最新指示を優先し、本メモを更新する）。
+
+**ステータス**: 初期ひな型（スケルトン）構築完了。Yahoo データ取得 CLI（fetch → raw → normalize → processed → export-csv）実装完了。データ確認 GUI 第1弾（`/api/data/series` 配線・`/api/assets` の data_status・データ画面）実装完了。最適化・バックテスト本体、分析画面、API/GUI からのデータ取得（data_fetch) 配線は未実装。
+
+---
+
+## 1. 技術スタックと選択理由
+
+| 領域 | 選択 | 理由 |
+| --- | --- | --- |
+| バックエンド | Python 3.11+ / FastAPI / Uvicorn | CLAUDE.md 指定。uv が 3.11 を調達（ローカルは 3.10 のため） |
+| 設定管理 | Pydantic Settings（`ASSET_ALLOC__` プレフィックス） | 型付き・`.env` 対応・テスト注入が容易 |
+| 数値 | pandas / numpy / scipy / PyPortfolioOpt | CLAUDE.md 指定。最適化エンジンは後続工程 |
+| データ保存 | Parquet（価格系列）+ SQLite（索引・資産定義・ジョブ・結果） | 分析に適した列指向 + 軽量な索引。今後置換可能に抽象化 |
+| 依存管理 (Python) | **uv**（`pyproject.toml` + `uv.lock` コミット） | ユーザー選択。再現性のあるロック |
+| フロント | React 18 + TypeScript + Vite + **Recharts** | ユーザー選択（グラフは Recharts）。型チェック・ESLint・Prettier・vitest |
+| 依存管理 (Frontend) | **npm**（`package-lock.json` コミット） | ユーザー選択。pnpm は不使用 |
+
+## 2. ディレクトリ構成（実装済み）
+
+```text
+backend/
+  app/
+    api/            # FastAPI ルーター（health / routes/assets,series,jobs,runs）
+      deps.py       # DI（get_settings）
+      router.py     # /api プレフィックスで集約
+    config/
+      settings.py   # Pydantic Settings + validate_settings + get_settings（lru_cache）
+      assets.py     # 資産定義読み込み
+      assets.default.json  # 4資産の初期マッピング（仮）
+    domain/
+      assets.py     # 論理資産の型・定義辞書
+    data/
+      provider.py     # PriceProvider Protocol（fetch_history / get_available_history / name）
+      repository.py   # Catalog(SQLite索引) / SeriesStore(Parquet) + スナップショットハッシュ
+      raw.py          # RawParquetWriter（raw/{asset}.parquet + snapshot.json、取得直後に対応）
+      normalize.py    # normalize_prices（ソート・dedup・欠損除去・既定値補完）
+      calendar.py     # TradingCalendar（観測日ランク付与・祝日DBなし）
+      pipeline.py     # PricePipeline（fetch → raw → normalize → processed + fetch_history 記録）
+      export.py       # export_csv / export_csv_for_asset（processed → CSV エクスポート）
+      providers/
+        yahoo.py      # YahooPriceProvider（query2 chart API、events=div、UA 付与）
+    cli.py            # fetch / export-csv サブコマンドの argparse CLI
+    __main__.py       # python -m app / -m app.cli 両対応
+    optimization/
+      service.py    # スタブ（後続）
+    backtest/
+      engine.py     # スタブ（後続）
+    schemas/        # Pydantic モデル（asset / dataseries / series / job）
+    main.py         # create_app(settings=None) アプリファクトリ
+    __init__.py     # __version__ = "0.1.0"
+  tests/            # pytest 一式（test_cli / test_yahoo_provider / test_normalize / test_pipeline / test_export ほか）
+  tests/fixtures/   # yahoo_vti_sample.json（ネットワーク不使用のテスト用サンプル）
+frontend/
+  src/
+    api/            # types.ts / client.ts（fetch ラッパー）/ index.ts
+    components/     # Header, HealthCheck
+    hooks/          # useHealth
+    pages/          # Data / Analysis / Optimization / Backtest / Compare（5画面）
+    App.tsx / main.tsx / index.css
+  tests/            # setup.ts / api.test.ts ほか
+data/               # raw / processed / fixtures（git 管理外）
+outputs/            # optimization / backtest（git 管理外）
+docs/design.md      # 本メモ
+```
+
+## 3. アーキテクチャ方針
+
+### 3.1 バックエンド
+
+- **アプリファクトリ**: `create_app(settings: Settings | None = None)`。テストは設定を注入して独立アプリを作る（DI）。起動時は `app = create_app()`。
+- **api / domain / data / schemas 分離**: HTTP層（api）・純粋ロジック（domain, optimization, backtest）・データアクセス（data）を分離。数値計算は UI から独立しテスト可能にする。
+- **Dependency は `Annotated[..., Depends(...)]` エイリアス**を使い、`Depends()` をデフォルト引数に書かない（ruff B008回避・可読性）。
+- **ジョブ方式**: 最適化・バックテストは初期版からジョブIDを返す非同期方式。現在はメモリ内ストアで状態遷移の契約（queued/running/succeeded/failed/cancelled）だけを提供し、将来 SQLite / プロセス間キューへ移行できる形にしている。
+
+### 3.2 フロントエンド
+
+- **API型と画面状態を分離**: `src/api/types.ts` にサーバー契約の型を定義し、`client.ts` の fetch ラッパーを介す。画面は型付きのクライアントのみを使う。
+- **画面は5つ**: データ / 分析 / 最適化 / バックテスト / 比較・保存。データ画面は実装済み（資産一覧＋系列グラフ）、分析以降はプレースホルダー。
+- **状態管理**: 現段階は React 標準の state + カスタムフック（`useHealth`）。必要になった段階で検討。
+
+## 4. 設定モデル（`config/settings.py`）
+
+環境変数は `ASSET_ALLOC__*` プレフィックス、または `.env` から読む。`validate_settings` で値間の整合性を検証する。
+
+| 設定 | 既定 | 意味 |
+| --- | --- | --- |
+| `app_env` | development | development / test / production |
+| `app_port` | 8000 | Uvicorn ポート |
+| `portfolio_base_currency` | **JPY** | ポートフォリオ基準通貨（初期版の必須） |
+| `instrument_trading_currency` | USD | 各商品の取引通貨 |
+| `underlying_currency_exposure` | USD | 裏付け資産の通貨エクスポージャー |
+| `fx_policy` | unhedged | 為替ヘッジ方針（unhedged / hedged） |
+| `data_root` / `output_root` | ../data / ../outputs | ルートからの相対 |
+| `sqlite_path` | data_root/app.db | 未指定時は data_root 配下 |
+| `asset_mapping_file` | app/config/assets.default.json | 資産マッピング |
+| `price_max_staleness_days` | 5 | 価格陳腐化の最大許容日数 |
+| `annualization_factor` | 252 | 日次→年率換算係数 |
+| `cors_origins` | http://localhost:5173 | ローカル開発のみ |
+
+**通貨・FX 分離**: `portfolio_base_currency`、`instrument_trading_currency`、`underlying_currency_exposure`、`fx_policy` を分離して管理する。USD建てETFをJPY基準で評価する場合の USD/JPY エクスポージャーは評価時に明示する。
+
+## 5. データモデル
+
+### 5.1 4資産の論理名（設定で差し替え可能）
+
+| 論理資産 | 意味 |
+| --- | --- |
+| `us_equity` | 米国株式 |
+| `us_bond` | 米国債券 |
+| `ex_us_equity` | 米国を除く株式 |
+| `ex_us_bond` | 米国を除く債券 |
+
+資産定義（`assets.default.json`）には、論理資産・表示名・既定ティッカー・対象指数・資産クラス・通貨・デュレーション・信用リスク・為替ヘッジ・分配金再投資の扱いを含める。**MVP の既定値は仮**（後述の未確定事項参照）。
+
+### 5.2 推奨データレコード
+
+```text
+date, asset_id, raw_close, adjusted_close, distribution,
+currency, source, source_symbol, price_type, retrieved_at,
+timezone, calendar, available_at, source_request_hash,
+raw_snapshot_hash, processed_snapshot_hash
+```
+
+- **raw と processed を分離**して保存する。
+- raw には取得リクエスト、内容ハッシュ、取得時刻、プロバイダーのデータバージョンを保存。
+- 処理済みデータと実行結果は必ず特定の raw / processed スナップショットハッシュを参照する。
+
+### 5.3 Repository 抽象
+
+- `SeriesStore`: Parquet で価格系列を保存・読み出し。保存時に **SHA-256 スナップショットハッシュ**を計算しマニフェストに記録（決定論的 canonical JSON: 日付で安定ソート + `sort_keys`）。processed 側は保存された Parquet の内容から自身の `processed_snapshot_hash`、対応する raw スナップショットの参照 `raw_snapshot_hash` を保持する。
+- `Catalog`（`SqliteIndexRepository`）: SQLite で資産定義・取得履歴・ジョブ・実行結果の索引を管理。取得履歴は `fetch_history` テーブル（`asset_id / source / started_at / finished_at / rows / status`、`insert_fetch_history` / `update_fetch_status` メソッド）。
+- `RawParquetWriter`: raw データを `raw/{asset}.parquet` と `raw/{asset}.snapshot.json` に保存。スナップショットハッシュ手順は `SeriesStore` と同一レシピで、正規化前に raw のハッシュを確定する。
+- `PriceProvider`（Protocol）: 実データ取得の抽象シグネチャ（`fetch_history` / `get_available_history` / `name`）。実装として `YahooPriceProvider`（query2 chart API）を持つ。追加プロバイダーはこの Protocol を実装するアダプターで行う。
+
+## 6. データ正規化・データソース方針
+
+- 4資産を同一通貨・同一頻度・同一営業日基準に整列する。基準カレンダーを定め、**inner join だけで観測日を削除しない**。
+- 各資産の履歴開始日と、4系列の共通履歴開始日を明示。上場前データを推測で補完しない。
+- 保有資産評価では直近価格を使用するが、`price_max_staleness_days`（既定5日）を超えたら警告または取引停止にする。
+- リターン計算（年率換算 `annualization_factor=252`）と評価計算のカレンダー規則を分けて記録する。
+- ETF のバックテスト総収益には原則として Adjusted Close を使うが、プロバイダーごとの定義をメタデータに残す。売買執行・スリッページ・回転率には未調整の取引価格を別途使う。
+- 企業行動・分配金・シンボル変更・ETF償還は方針を記録。代替ETFへ自動乗り換えて連続系列を作らない。
+
+### 6.4 データソース（Yahoo Finance chart API を採用）
+
+**選定比較（2026-08-08 実プローブで確認）**
+
+| プロバイダー | 結果 | 判断 |
+| --- | --- | --- |
+| **Yahoo Finance chart API（query2ホスト）** | ブラウザ UA ヘッダ付きで 200。`interval=1d&events=div` で日次終値・Adjusted Close・分配金（`events.dividends`）を返す | **採用**（無料・APIキー不要・研究目的で利用） |
+| Yahoo Finance（query1ホスト） | UA なしだと 429 | query2 を利用 |
+| stooq | JavaScript proof-of-work により取得不可 | 不採用（スクレイピング前提のため） |
+
+**利用上の前提（CLAUDE.md 準拠）**
+- Yahoo の利用規約に従い**非商用・研究利用に限定**。再配布しない。取得間隔は控えめにする。
+- 実データの取得は CLI（`app.cli fetch`）経由のみ。API ジョブ／GUI への配線は本フェーズでは行わない。
+- API キー不要（設定やログに秘密情報は出さない）。
+
+**Yahoo データの扱い**
+- `adjusted_close`（`indicators.adjclose`）は分配金・分割を反映した Yahoo 定義の修正終値。バックテスト総収益は原則これを使う。定義はメタデータに残す。
+- `events.dividends` の amount を `distribution` 列へ格納。配当日でない行は `0.0`。
+- `close` が `null` の行（非営業日プレースホルダー）は `distribution=0.0` として保持し、`raw_close`/`adjusted_close` が両方空の行は正規化時に除去。
+- `currency`=meta.currency、`timezone`=meta.exchangeTimezoneName、`calendar`="us"、`source`="yahoo"、`source_symbol`=ticker を記録。
+- `source_request_hash`=レスポンス本文の SHA-256 で、取得内容を再現可能にする。
+
+**CLI パイプライン（fetch → raw → normalize → processed → export-csv）**
+
+```text
+fetch        YahooPriceProvider.fetch_history → raw/{asset}.parquet（+snapshot.json）
+                                 ↓ 正規化（normalize_prices）
+             processed/{asset}.parquet に raw_snapshot_hash を付与して保存
+                                 ↓
+export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-%d）
+```
+
+- raw（取得直後）と processed（正規化済み）を分離し、processed は必ず `raw_snapshot_hash` で特定の raw スナップショットを参照する。
+- 取得履歴は SQLite の `fetch_history` に記録（`started_at`/`finished_at`/`rows`/`status`、失敗資産は `status=failed` で資産単位に隔離）。
+
+### 6.5 実装済みデータ処理の挙動
+
+- **正規化（`normalize_prices`）**: 日付を datetime64 化して昇順ソート → 重複日付は `keep="last"` で除去 → 数値列を float 化 → `raw_close` と `adjusted_close` が**両方 NaN の行を除去** → `distribution` / `timezone` / `available_at` / `price_type` の欠損を既定値で補完 → `SERIES_COLUMNS` の列のみを決められた順序で保持（未知列は除去）。空入力・必須列（`date`/`asset_id`）欠落・価格列が存在するのに全行が空、は **ValueError**（上場前データなどを推測で補完しない、という CLAUDE.md 方針）。
+- **クローズの非営業日処理**: Yahoo は `close` が `null` の行（非営業日プレースホルダー）を返すことがある。これは `raw_close`/`adjusted_close` が空の行として正規化で除去される。配当日は `events.dividends` の amount を `distribution` に格納し、非配当日は `0.0`。
+- **スナップショットハッシュ連携**: `fetch_history` の結果を正規化**前**に `RawParquetWriter` で保存し raw スナップショットハッシュを確定 → processed フレームの `raw_snapshot_hash` 列に同値を設定してから `SeriesStore` で保存。これにより processed は常に特定の raw スナップショットを参照する。
+- **失敗の隔離**: `PricePipeline.run()` は資産単位に try/except で隔離。1資産の取得・保存に失敗しても他資産は続行し、失敗資産は `status=failed` とエラー内容をサマリ／fetch_history に記録する。例外は握りつぶさない。
+- **CLI 検証**: `app.cli` の `fetch` / `export-csv` は `is_valid_asset_id` で資産IDを検証（未知IDは終了コード2）。全取得はネットワーク非依存のテスト（`httpx.MockTransport` + `tests/fixtures/yahoo_vti_sample.json`、fake provider、monkeypatch）で検証する。
+
+### 6.6 リターン計算（`app/domain/returns.py`・実装済み）
+
+正規化済み価格 series からリターン計算・年率換算・頻度リサンプリングを行う**純粋関数**（HTTP・DB 非依存）。インデックスは `DatetimeIndex`（昇順）を前提とする。
+
+- **単純リターン `simple_return`**: `prices[t]/prices[t-1] - 1`（`pct_change(fill_method=None)`）。先頭は NaN。欠損は前処理しない。
+- **対数リターン `log_return`**: `ln(prices[t]/prices[t-1])`。先頭は NaN。非正の価格は `-inf`/NaN として顕在化（推測補完しない）。
+- **累積リターン `cumulative_return`**: 時間加重 `cumprod(1+r) - 1`。先頭は基準日＝ 0.0 に置換。途中の NaN は `cumprod` の skipna に任せ「観測なし＝1.0 の寄与」とみなす。
+- **年率リターン `annualize_return`**: 欠損を除いた平均を年率換算。既定は **geometric** `(1+mean)^factor - 1`（バックテスト用・時間加重に整合）。`arithmetic` `mean×factor` は PyPortfolioOpt の `mean_historical_return` 互換として提供。空・全 NaN は `float("nan")`（ゼロ除算・空系列を握りつぶさない）。
+- **年率対数リターン `annualize_log_return`**: `expm1(mean×factor)`。対数リターンの和は経路非依存のため正確。
+- **年率ボラティリティ `annualize_volatility`**: 標本標準偏差 `std(ddof=1)` × `√factor`。データ 1 点未満は NaN。
+- **頻度リサンプリング `resample_returns`**: `'D'`/`'W'`/`'M'`（`_FREQ_MAP={"D":"D","W":"W","M":"ME"}`）。入力が単純リターン（`log=False`）は期間内を `(1+r)` の積で複利合成、対数リターン（`log=True`）は和。集約 index は各期間の**最終観測日**。`'D'` は恒等。
+- **年率換算係数**: `annualization_factor`（既定 252）を引数で注入。`Settings.annualization_factor` と整合させる。
+- **価格系列リサンプリング `resample_prices`**: `frequency`（`'D'`/`'W'`/`'M'`）に応じて価格系列を集約する。`resample_returns` と同じ grouper を使い、各期間の**最終観測日**を index に、`groupby().last()` で集約（期間内の最終観測値をその期間の代表値とする）。`'D'` は恒等。リターン系（return/cumulative）の再サンプリングには `resample_returns`（複利合成）を使い、価格系（price/adjusted_close）には `resample_prices` を使う。
+- **欠損方針**: fill / 推測補完を一切行わない。空・全 NaN 系列は例外を投げず NaN を返す。
+- **未確定（future work）**: 週次 `'W'` のアンカーは pandas 既定（週末終わり）に任せる。カレンダー規則の確定時に、アンカーと週次複利の偶発的欠損の扱いを再検討する。
+
+### 6.7 系列 API とデータ状態（データ確認 GUI 第1弾・実装済み）
+
+- **`GET /api/data/series`** を processed Parquet へ配線した。`settings.processed_dir` から `ParquetPriceRepository.load_series(asset_id, start, end)` で読み込み、`series_type` に応じて `app/domain/returns.py` の純粋関数で変換する（`adjusted_close`→調整済み終値、`price`→`raw_close`、`return`→`simple_return`、`cumulative`→`cumulative_return(simple_return)`）。`frequency`（既定 D）が W/M のとき、リターン系は `resample_returns`、価格系は `resample_prices` で再サンプリングする。
+- **NaN の扱い**: リターン系の初回 NaN などは**JSON 配線時に NaN の点を除外**する（無効な JSON を避ける）。値は補完・推測しない。`missing` 数や警告ですでに画面に顕在化させている。
+- **未取得資産**: `load_series` が `FileNotFoundError` を投げた場合、例外を握りつぶさず**空の points ＋ 日本語警告**（「データが未取得です（{id}）。先にデータ取得 CLI を実行してください。」）を返す。
+- **`GET /api/assets`**: 設定由来の資産定義に `data_status`（`AssetDataStatus`）を合成する。`summarize_series(df)`（`app/data/summary.py` の純粋関数）が processed フレームから `available` / `start` / `end` / `rows` / `missing`（adjusted_close の NaN 行数）/ `source` / `price_type` / `retrieved_at` を集計し、route 側で `repo.read_manifest()` の `snapshot_hash` を合成する。未取得は `available=false`。
+- **DI は最小化**: リポジトリは route 内で `settings.processed_dir` から直接構築する。`app.state.repositories` への配線は将来のワーカー置換フェーズに回す。
+
+## 7. 最適化・バックテスト（未実装・設計のみ）
+
+- **最適化**: データ期間・リターン頻度・年率換算・リスクフリー金利・ウェイト上下限・合計ウェイト・取引コストを明示入力とする。既定はロングオンリー・合計100%・レバレッジなし・0–100%。Efficient Frontier / Expected return / Covariance の組合せに互換性表を設ける。`static_allocation`（単発）と `rebalance_allocation`（リバランス）を分離。
+- **バックテスト**: 学習期間（lookback）を明示し、各リバランス時点で未来情報を入力に使わない。シグナル日と約定日を分離（次営業日約定など）。リターン指標の定義（Sharpe / Sortino / Calmar の分母、無リスク金利、年率換算頻度、ゼロ除算）を記録。
+- **再現性**: 入力期間・使用データ・推定方法・全パラメータ・目的関数・結果・警告・設定・データバージョン・コードバージョン・実行時刻を保存。固定データの未来部分を変更しても過去のバックテスト結果が変わらないことを検証するテストを用意する。
+- 高い成績を「最適」や「将来も有効」と表現しない。
+
+## 8. API 設計（初期スケジュール）
+
+`GET /api/health`、`GET /api/assets`、`GET /api/data/series`、`POST /api/jobs`、`GET /api/jobs/{job_id}`、`POST /api/jobs/{job_id}/cancel`、`GET /api/runs/{run_id}`、`GET /api/runs/{run_id}/equity-curve`、`GET /api/runs/{run_id}/trades` — 詳細スキーマは `app/schemas/` の Pydantic モデルで定義。OpenAPI は実装の契約として扱う。
+
+初期版の公開範囲は **localhost 利用のみ**。ネットワーク公開時は認証・認可、CORS許可元、レート制限、APIキーの秘密管理、入力サイズ制限、監査ログを設計してから有効化する。
+
+## 9. GUI 画面（初期5画面）
+
+1. **データ**: 4資産の候補・データソース・期間・欠損・取得日時・価格種別を確認・更新
+2. **分析**: 価格推移・累積リターン・ローリングボラティリティ・相関ヒートマップ
+3. **最適化**: 手法・期待リターン・共分散・期間・制約・リスクフリー金利 → ウェイト・期待利得・リスク・Sharpe
+4. **バックテスト**: 期間・lookback・リバランス・コスト・初期資産 → 累積資産・ドローダウン・年次成績・配分推移・取引一覧
+5. **比較・保存**: 実行結果の比較、JSON/CSV エクスポート
+
+各画面で、使用したデータスナップショット・通貨方針・シグナル日/約定日規則・警告を結果の近くに表示する。
+
+## 10. 品質管理
+
+- backend: pytest / ruff / mypy（strict）/ pandas-stubs。`pyproject.toml` + `uv.lock` で固定。
+- frontend: ESLint / Prettier / TypeScript（strict）/ vitest + Testing Library。`package-lock.json` をコミット。
+- 重要な計算は固定データによる再現可能テストを持つ。外部データへ依存するテストは固定保存データを使い、ネットワーク依存テストと分離する。
+- 再現性テスト: データスナップショット・依存関係・設定JSONのハッシュを使う（後続）。
+
+## 11. 未確定事項（後続工程で確定）
+
+| 事項 | 現在の状態 | 確定までの作業 |
+| --- | --- | --- |
+| 実データソース/プロバイダー | **Yahoo Finance chart API（query2）採用** | 取得間隔・非商用利用の遵守。代替プロバイダー追加はアダプターで対応 |
+| 4資産の既定ティッカー | **VTI / BND / VXUS / BNDX（Yahoo 取得で確認済み）** | コードに固定せず設定で変更可能（`assets.default.json`） |
+| `ex_us_bond` の対象指数・為替方針 | BNDX（USD建て・unhedged）仮 | 国際債券ETFの為替ヘッジ有無と対象指数を確認 |
+| 履歴長・共通履歴開始日 | 実取得時の meta.firstTradeDate / regularMarketTime で確認可能 | fetch 実行後に決定し画面表示 |
+| 最適化・バックテスト実ロジック | スタブ | 後続工程 |
+| 年率換算・カレンダー規則の詳細 | **実装済み**（`app/domain/returns.py`＋固定値テスト。年率リターンは geometric 既定、年率ボラティリティは `std(ddof=1)×√factor`、`factor=252` 引数注入） | 週次 `'W'` のアンカーと週次複利の偶発的欠損の扱い |
+| バックテスト指標の詳細定義 | 方針のみ | 実装時に固定し記録 |
+| 過去データの将来変更要テスト | 方針のみ | 実装時に実装 |
+
+## 12. 決定履歴
+
+- **2026-08-08** — 初版。全体ひな型（骨格）を構築し設計判断を記録。uv（依存管理）/ Recharts（グラフ）/ npm（frontend パッケージ）を採用。4資産の既定ティッカーを仮確定（VTI / BND / VXUS / BNDX）、`portfolio_base_currency=JPY`・`fx_policy=unhedged` を確定。公開範囲は localhost 限定。最適化・バックテスト本体は未実装（スタブ）。
+- **2026-08-08** — データ取得フェーズ。Yahoo Finance chart API（query2）を実データソースとして採用（query1=429、stooq は proof-of-work で不可）。データ取得 CLI（`app.cli fetch` / `export-csv`）を実装。raw/processed の分離・raw スナップショットハッシュ・fetch_history 記録を追加。Yahoo ToS（非商用・研究利用限定）と Adjusted Close / 分配金の扱いを記録。API ジョブ／GUI への配線は本フェーズでは行わない。
+- **2026-08-08** — リターン計算・年率換算フェーズ。`app/domain/returns.py` を新設（単純／対数／累積リターン・年率換算・年率ボラティリティ・頻度リサンプリング）。累積・年率は時間加重を採用。年率リターンは geometric 既定（arithmetic は PyPortfolioOpt `mean_historical_return` 互換）。欠損は補完せず NaN を返し、空系列は例外を投げない。`normalize_prices` 後の価格 series を入力とし、HTTP 配線（`/api/data/series`）はデータ表示 GUI フェーズで後続。固定値テスト（`tests/test_returns.py`）で既知の数値例と照合。
+- **2026-08-08** — データ確認 GUI 第1弾（フロントエンド データ画面＋系列 API 配線）。`GET /api/data/series` を processed Parquet へ配線し（series_type=adjusted_close/price/return/cumulative、frequency=D/W/M、NaN は JSON 配線で除外、未取得は警告＋空）、`GET /api/assets` に `data_status` を合成（`AssetDataStatus`／`summarize_series`／`snapshot_hash` 連携）。`resample_prices` を `app/domain/returns.py` に追加。フロントエンドにデータ画面（資産一覧表＋系列グラフ、series_type/frequency 選択式）を実装。**分析画面・最適化・バックテスト・`/api/jobs` からの data_fetch 配線は引き続き未実装**。
+
