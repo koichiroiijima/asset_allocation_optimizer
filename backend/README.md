@@ -31,12 +31,12 @@ uv run mypy app        # 型チェック
 ## 構成（抜粋）
 
 - `app/config/` — Pydantic Settings と資産マッピング設定
-- `app/schemas/` — API スキーマ（OpenAPI の契約。asset / series / analysis / optimization / job）
+- `app/schemas/` — API スキーマ（OpenAPI の契約。asset / series / analysis / optimization / backtest / job）
 - `app/domain/` — 純粋な計算ロジック（リターン計算・年率換算・頻度リサンプリング・ローリングボラ・相関行列 `returns.py`）
 - `app/data/` — データプロバイダー／リポジトリ抽象（Parquet + SQLite 索引 + スナップショットハッシュ）
 - `app/optimization/` — 最適化サービス（PyPortfolioOpt `static_allocation` 実装済み）
-- `app/backtest/` — バックテスト（プレースホルダー）
-- `app/api/` — FastAPI ルーター（`routes/` 配下に assets / series / analysis / optimizations / jobs / runs、`route_helpers.py` が複数資産の価格行列整列を共用）
+- `app/backtest/` — バックテストエンジン（固定ウェイト・リバランス `run_backtest` 実装済み）
+- `app/api/` — FastAPI ルーター（`routes/` 配下に assets / series / analysis / optimizations / backtests / jobs / runs、`route_helpers.py` が複数資産の価格行列整列を共用）
 
 ### 実装済みエンドポイント
 
@@ -47,6 +47,7 @@ uv run mypy app        # 型チェック
 | `GET` | `/api/data/series` | 単一資産の系列（adjusted_close / price / return / cumulative、D/W/M、NaN 除外） |
 | `GET` | `/api/data/analysis` | 複数資産の分析データ（価格・累積リターン・ローリングボラ・相関行列、未取得は除外して警告） |
 | `POST` | `/api/optimizations` | 最適化（`static_allocation`）の同期実行。`start`/`end` で期間を絞りルックアヘッドを回避 |
+| `POST` | `/api/backtests` | バックテスト（固定ウェイト・リバランス）の同期実行。次営業日約定でルックアヘッドを回避 |
 | `POST`/`GET`/`cancel` | `/api/jobs` 系 | ジョブ状態遷移の骨格（実処理の配線は未実施） |
 | `GET` | `/api/runs` 系 | 実行結果の骨格（プレースホルダー） |
 

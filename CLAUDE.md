@@ -31,11 +31,12 @@
 
 実装済み（進捗詳細は [`docs/TODO.md`](docs/TODO.md)）：
 
-- **データ取得**: Yahoo Finance chart API（query2）→ `app.cli fetch` / `export-csv` パイプライン（raw / processed Parquet、スナップショットハッシュ、SQLite fetch_history）。4資産は VTI / BND / VXUS / BNDX。
+- **データ取得**: Yahoo Finance chart API（query2）→ `app.cli fetch` / `export-csv` パイプライン（raw / processed Parquet、スナップショットハッシュ、SQLite fetch_history）。4資産は VTI / BND / VXUS / BNDX。日次取得（`period1`/`period2` 明示で Yahoo の月足ダウンサンプリングを回避）。
 - **リターン計算**: `app/domain/returns.py`（単純／対数／累積リターン・年率換算・頻度リサンプリング・`rolling_volatility`・`correlation_matrix`）。欠損は補完しない。
-- **GUI**: データ画面（系列グラフ）と分析画面（価格推移・累積リターン・ローリングボラ・相関ヒートマップ）を実装。`GET /api/data/series` / `GET /api/data/analysis` を配線。
-- **最適化**: `app/optimization/service.py` の `static_allocation`（PyPortfolioOpt）と `POST /api/optimizations`（同期・`start`/`end` でルックアヘッド回避）まで実装済み。
+- **GUI**: データ画面（系列グラフ）・分析画面（価格推移・累積リターン・ローリングボラ・相関ヒートマップ）・最適化画面（手法・期間・制約入力と結果表示）・バックテスト画面（固定ウェイトリバランス・累積資産/ドローワウン/配分推移・指標・取引一覧）を実装。
+- **最適化**: `app/optimization/service.py` の `static_allocation`（PyPortfolioOpt）＋ `POST /api/optimizations`（同期・`start`/`end` でルックアヘッド回避）。
+- **バックテスト**: `app/backtest/engine.py` の `run_backtest`（固定ウェイト・**次営業日約定でルックアヘッド回避**）＋ `POST /api/backtests`。評価指標（累積/年率リターン・ボラ・Sharpe/Sortino/Calmar・最大DD・勝率・回転率・手数料）は未定義を null で返す。バイアス検知テストで未来データ混入を検出。
 
-未実装（後続工程）：最適化画面（GUI）、rebalance_allocation、バックテスト本体と評価指標、`/api/jobs` からの data_fetch 配線、比較・保存画面。
+未実装（後続工程）：rebalance_allocation（再最適化リバランス）、バックテスト実行結果の再現可能な保存（スナップショット・コードバージョン、runs/jobs 配線含む）、Black-Litterman アロケーション、`/api/jobs` からの data_fetch 配線、比較・保存画面。
 
 内部仕様・設計判断は [`docs/design.md`](docs/design.md)、API の使い方・ユーザー向け操作は [`README.md`](README.md) に記載。
