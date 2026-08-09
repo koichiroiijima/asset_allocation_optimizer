@@ -1,6 +1,7 @@
 export { api, createApiClient } from './client';
 export type { ApiClient } from './client';
 export type {
+  AllocationPoint,
   AnalysisResponse,
   AnalysisSpec,
   ApiError,
@@ -8,8 +9,13 @@ export type {
   AssetDataStatus,
   AssetListResponse,
   AssetSeries,
+  BacktestMetrics,
+  BacktestRequest,
+  BacktestResponse,
+  BacktestTrade,
   CorrelationMatrixResponse,
   CovarianceMethod,
+  EquityPoint,
   ExpectedReturnMethod,
   Frequency,
   HealthResponse,
@@ -22,8 +28,10 @@ export type {
   OptimizationRequest,
   OptimizationResponse,
   OptimizationMetrics,
+  RebalanceFrequency,
   SeriesPoint,
   SeriesResponse,
   SeriesSpec,
   SeriesType,
+  YearlyPerformance,
 } from './types';

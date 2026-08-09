@@ -2,6 +2,8 @@ import type {
   AnalysisResponse,
   AnalysisSpec,
   AssetListResponse,
+  BacktestRequest,
+  BacktestResponse,
   HealthResponse,
   OptimizationRequest,
   OptimizationResponse,
@@ -78,6 +80,7 @@ export interface ApiClient {
   getSeries: (spec: SeriesSpec) => Promise<SeriesResponse>;
   getAnalysis: (spec: AnalysisSpec) => Promise<AnalysisResponse>;
   optimize: (payload: OptimizationRequest) => Promise<OptimizationResponse>;
+  runBacktest: (payload: BacktestRequest) => Promise<BacktestResponse>;
 }
 
 export function createApiClient(): ApiClient {
@@ -89,6 +92,8 @@ export function createApiClient(): ApiClient {
       getJson<AnalysisResponse>(`/data/analysis?${analysisQuery(spec)}`),
     optimize: (payload: OptimizationRequest) =>
       postJson<OptimizationResponse>('/optimizations', payload),
+    runBacktest: (payload: BacktestRequest) =>
+      postJson<BacktestResponse>('/backtests', payload),
   };
 }
 

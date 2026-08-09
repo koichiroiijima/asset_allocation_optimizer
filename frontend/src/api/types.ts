@@ -165,3 +165,79 @@ export interface OptimizationResponse {
   };
   warnings: string[];
 }
+
+/** `POST /api/backtests` のリクエスト/レスポンス。 */
+export type RebalanceFrequency = 'D' | 'W' | 'M';
+
+export interface BacktestRequest {
+  asset_ids: string[];
+  weights: Record<string, number>;
+  rebalance_frequency: RebalanceFrequency;
+  initial_capital: number;
+  cost_rate: number;
+  risk_free_rate: number;
+  annualization_factor: number;
+  lookback: number;
+  start?: string;
+  end?: string;
+}
+
+/** 未定義の指標は null（Pydantic の float | None）。 */
+export interface BacktestMetrics {
+  cumulative_return: number | null;
+  annual_return: number | null;
+  annual_volatility: number | null;
+  sharpe_ratio: number | null;
+  sortino_ratio: number | null;
+  calmar_ratio: number | null;
+  max_drawdown: number | null;
+  win_rate: number | null;
+  turnover: number | null;
+  total_fees: number;
+}
+
+export interface EquityPoint {
+  date: string;
+  value: number;
+}
+
+export interface BacktestTrade {
+  date: string;
+  asset_id: string;
+  side: 'BUY' | 'SELL';
+  quantity: number;
+  price: number;
+  value: number;
+  fee: number;
+}
+
+export interface AllocationPoint {
+  date: string;
+  weights: Record<string, number>;
+}
+
+export interface YearlyPerformance {
+  year: number;
+  period_return: number;
+}
+
+export interface BacktestResponse {
+  asset_ids: string[];
+  params: {
+    weights: Record<string, number>;
+    rebalance_frequency: RebalanceFrequency;
+    initial_capital: number;
+    cost_rate: number;
+    risk_free_rate: number;
+    annualization_factor: number;
+    lookback: number;
+  };
+  currency: string;
+  metrics: BacktestMetrics;
+  equity_curve: EquityPoint[];
+  drawdown: EquityPoint[];
+  yearly: YearlyPerformance[];
+  allocation: AllocationPoint[];
+  trades: BacktestTrade[];
+  warnings: string[];
+}
