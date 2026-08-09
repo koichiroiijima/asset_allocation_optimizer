@@ -2,7 +2,7 @@
 
 このファイルはアセット配分最適化アプリの実装進捗を追跡する。実装状況の詳細（設計判断・決定履歴）は [`design.md`](design.md)、利用方法は [`README.md`](../README.md)、進め方の指針は [`CLAUDE.md`](../CLAUDE.md) を参照。
 
-最終更新: 2026-08-08
+最終更新: 2026-08-09
 
 ## 凡例
 
@@ -23,12 +23,13 @@
 
 ## データ取得（Yahoo Finance）
 
-- [x] Yahoo Finance chart API（query2）採用（query1=429・stooq 辞退の比較記録）
+- [x] Yahoo Finance chart API（query2・ブラウザUA付与）採用（query1=429・stooq 辞退の比較記録）
 - [x] データ取得 CLI（`app.cli fetch` / `export-csv`）
 - [x] fetch → raw → normalize → processed → export-csv パイプライン
 - [x] raw / processed の分離、raw スナップショットハッシュ連携
 - [x] SQLite の fetch_history 記録・資産単位の失敗隔離
 - [x] 4資産の既定ティッカー取得確認（VTI / BND / VXUS / BNDX、USD）
+- [ ] `price_max_staleness_days`（陳腐化更新の警告・取引停止）— 設定値のみ定義、適用は未実装
 - [ ] `/api/jobs` からの data_fetch 配線（GUI/API からの取得は未接続、CLI のみ）
 - [ ] レート制限対応・取得失敗時の再試行・データ品質警告
 
@@ -39,6 +40,7 @@
 - [x] 頻度リサンプリング（`resample_returns`・`resample_prices`、頻度 D/W/M）
 - [x] 欠損方針（補完しない、空系列は例外を投げない）
 - [x] 固定値テスト（`tests/test_returns.py`）
+- [x] `resample_prices`（価格系列の D/W/M 集約、リターン系は `resample_returns` で複利合成）
 
 ## データ確認 GUI（第1弾）
 
@@ -65,7 +67,7 @@
 
 ## 画面（分析以降）
 
-- [ ] 分析画面（価格推移・累積リターン・ローリングボラティリティ・相関ヒートマップ）— 第2弾として延期
+- [ ] 分析画面（価格推移・累積リターン・ローリングボラティリティ・相関ヒートマップ）
 - [ ] 最適化画面
 - [ ] バックテスト画面
 - [ ] 比較・保存画面（複数結果の比較、JSON / CSV エクスポート）
