@@ -2,7 +2,7 @@
 
 この文書は実装上の設計判断を記録する。詳細な金融モデル仕様・データソース選定はここに集約する。実装の進め方・ガイドラインは `CLAUDE.md` を参照（矛盾する場合はユーザーの最新指示を優先し、本メモを更新する）。
 
-**ステータス**: 初期ひな型（スケルトン）構築完了。Yahoo データ取得 CLI（fetch → raw → normalize → processed → export-csv）実装完了。データ確認 GUI 第1弾（`/api/data/series` 配線・`/api/assets` の data_status・データ画面）実装完了。**最適化サービス（PyPortfolioOpt・`static_allocation`）と単体テスト実装完了**。バックテスト本体、最適化 UI/API 配線、rebalance_allocation、分析画面、API/GUI からのデータ取得（data_fetch）配線は未実装。
+**ステータス**: 初期ひな型（スケルトン）構築完了。Yahoo データ取得 CLI（fetch → raw → normalize → processed → export-csv）実装完了。データ確認 GUI 第1弾（`/api/data/series` 配線・`/api/assets` の data_status・データ画面）実装完了。**最適化サービス（PyPortfolioOpt・`static_allocation`）、最適化 API（`POST /api/optimizations`）、分析 API（`GET /api/data/analysis`）と分析画面、`app/domain/returns.py` のローリングボラ・相関行列**を実装済み。バックテスト本体、最適化画面（GUI）、rebalance_allocation、API/GUI からのデータ取得（data_fetch）配線は未実装。
 
 ---
 
@@ -23,16 +23,21 @@
 ```text
 backend/
   app/
-    api/            # FastAPI ルーター（health / routes/assets,series,jobs,runs）
+    api/            # FastAPI ルーター（health / routes/assets,series,analysis,optimizations,jobs,runs）
       deps.py       # DI（get_settings）
       router.py     # /api プレフィックスで集約
+      route_helpers.py  # load_price_matrix（複数資産の価格行列整列。analysis/optimizations で共用）
+      routes/
+        analysis.py     # GET /api/data/analysis（複数資産の分析データ）
+        optimizations.py# POST /api/optimizations（static_allocation の同期配線）
+        assets.py / series.py / jobs.py / runs.py
     config/
       settings.py   # Pydantic Settings + validate_settings + get_settings（lru_cache）
       assets.py     # 資産定義読み込み
       assets.default.json  # 4資産の初期マッピング（仮）
     domain/
       assets.py     # 論理資産の型・定義辞書
-      returns.py    # リターン計算・年率換算・頻度リサンプリング（実装済み）
+      returns.py    # リターン計算・年率換算・頻度リサンプリング・rolling_volatility・correlation_matrix（実装済み）
     data/
       provider.py     # PriceProvider Protocol（fetch_history / get_available_history / name）
       repository.py   # Catalog(SQLite索引) / SeriesStore(Parquet) + スナップショットハッシュ
@@ -41,6 +46,7 @@ backend/
       calendar.py     # TradingCalendar（観測日ランク付与・祝日DBなし）
       pipeline.py     # PricePipeline（fetch → raw → normalize → processed + fetch_history 記録）
       export.py       # export_csv / export_csv_for_asset（processed → CSV エクスポート）
+      summary.py      # summarize_series（data_status 用の集計）
       providers/
         yahoo.py      # YahooPriceProvider（query2 chart API、events=div、UA 付与）
     cli.py            # fetch / export-csv サブコマンドの argparse CLI
@@ -49,19 +55,19 @@ backend/
       service.py    # static_allocation 実装済み（rebalance_allocation は未実装）
     backtest/
       engine.py     # スタブ（後続）
-    schemas/        # Pydantic モデル（asset / dataseries / series / job）
+    schemas/        # Pydantic モデル（asset / dataseries / series / analysis / optimization / job）
     main.py         # create_app(settings=None) アプリファクトリ
     __init__.py     # __version__ = "0.1.0"
-  tests/            # pytest 一式（test_cli / test_yahoo_provider / test_normalize / test_pipeline / test_export ほか）
+  tests/            # pytest 一式（test_cli / test_yahoo_provider / test_normalize / test_pipeline / test_export / test_analysis_api / test_optimizations_api ほか）
   tests/fixtures/   # yahoo_vti_sample.json（ネットワーク不使用のテスト用サンプル）
 frontend/
   src/
     api/            # types.ts / client.ts（fetch ラッパー）/ index.ts
     components/     # Header, HealthCheck
-    hooks/          # useHealth
-    pages/          # Data / Analysis / Optimization / Backtest / Compare（5画面）
+    hooks/          # useHealth, useAssets, useSeries, useAnalysis
+    pages/          # Data / Analysis（実装済み）/ Optimization / Backtest / Compare（5画面）
     App.tsx / main.tsx / index.css
-  tests/            # setup.ts / api.test.ts ほか
+  tests/            # setup.ts / api.test.ts / DataScreen.test.tsx / App.test.tsx ほか
 data/               # raw / processed / fixtures（git 管理外）
 outputs/            # optimization / backtest（git 管理外）
 docs/design.md      # 本メモ
@@ -79,8 +85,8 @@ docs/design.md      # 本メモ
 ### 3.2 フロントエンド
 
 - **API型と画面状態を分離**: `src/api/types.ts` にサーバー契約の型を定義し、`client.ts` の fetch ラッパーを介す。画面は型付きのクライアントのみを使う。
-- **画面は5つ**: データ / 分析 / 最適化 / バックテスト / 比較・保存。データ画面は実装済み（資産一覧＋系列グラフ）、分析以降はプレースホルダー。
-- **状態管理**: 現段階は React 標準の state + カスタムフック（`useHealth`）。必要になった段階で検討。
+- **画面は5つ**: データ / 分析 / 最適化 / バックテスト / 比較・保存。データ画面（資産一覧＋系列グラフ）と**分析画面**（価格推移・累積リターン・ローリングボラ・相関ヒートマップ、`useAnalysis` フック＋`getAnalysis`）は実装済み。最適化・バックテスト・比較・保存はプレースホルダー。
+- **状態管理**: 現段階は React 標準の state + カスタムフック（`useHealth` / `useAssets` / `useSeries` / `useAnalysis`）。必要になった段階で検討。
 
 ## 4. 設定モデル（`config/settings.py`）
 
@@ -201,6 +207,8 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
 - **頻度リサンプリング `resample_returns`**: `'D'`/`'W'`/`'M'`（`_FREQ_MAP={"D":"D","W":"W","M":"ME"}`）。入力が単純リターン（`log=False`）は期間内を `(1+r)` の積で複利合成、対数リターン（`log=True`）は和。集約 index は各期間の**最終観測日**。`'D'` は恒等。
 - **年率換算係数**: `annualization_factor`（既定 252）を引数で注入。`Settings.annualization_factor` と整合させる。
 - **価格系列リサンプリング `resample_prices`**: `frequency`（`'D'`/`'W'`/`'M'`）に応じて価格系列を集約する。`resample_returns` と同じ grouper を使い、各期間の**最終観測日**を index に、`groupby().last()` で集約（期間内の最終観測値をその期間の代表値とする）。`'D'` は恒等。リターン系（return/cumulative）の再サンプリングには `resample_returns`（複利合成）を使い、価格系（price/adjusted_close）には `resample_prices` を使う。
+- **ローリングボラティリティ `rolling_volatility`**: リターン系列の移動年率ボラ。各時点で直近 `window` 個の観測（NaN 除外・`std(ddof=1)`）に `√factor` を掛けて年率換算。先頭区間（観測 < window）は NaN。空・全 NaN は全 NaN 系列を返す。`window < 2` は `ValueError`。
+- **相関行列 `correlation_matrix`**: リターン系列（列=資産）のピアソン相関。NaN は資産ペアごとに観測のある組だけで除外（推測補完しない）。単一資産は 1×1（対角 1.0）、空は空行列を返す。
 - **欠損方針**: fill / 推測補完を一切行わない。空・全 NaN 系列は例外を投げず NaN を返す。
 - **未確定（future work）**: 週次 `'W'` のアンカーは pandas 既定（週末終わり）に任せる。カレンダー規則の確定時に、アンカーと週次複利の偶発的欠損の扱いを再検討する。
 
@@ -212,7 +220,17 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
 - **`GET /api/assets`**: 設定由来の資産定義に `data_status`（`AssetDataStatus`）を合成する。`summarize_series(df)`（`app/data/summary.py` の純粋関数）が processed フレームから `available` / `start` / `end` / `rows` / `missing`（adjusted_close の NaN 行数）/ `source` / `price_type` / `retrieved_at` を集計し、route 側で `repo.read_manifest()` の `snapshot_hash` を合成する。未取得は `available=false`。
 - **DI は最小化**: リポジトリは route 内で `settings.processed_dir` から直接構築する。`app.state.repositories` への配線は将来のワーカー置換フェーズに回す。
 
-## 7. 最適化・バックテスト（最適化サービスは実装済み・バックテスト未実装）
+### 6.8 分析 API（`GET /api/data/analysis`・実装済み）
+
+- **役割**: 分析画面（価格推移・累積リターン・ローリングボラ・相関ヒートマップ）のために、複数資産のデータを 1 リクエストでまとめて返す。
+- **入力**: `asset_ids`（必須・min_length=1）、`start` / `end`（期間）、`frequency`（D/W/M・既定D）、`window`（ローリング窓・既定60・5〜1000）。
+- **共通ヘルパー**: `app/api/route_helpers.py` の `load_price_matrix(repo, asset_ids, start, end)` で複数資産の adjusted_close を**外側 union の日付インデックス**で整列した価格行列を作る。観測日が資産ごとに異なるセルは NaN のまま（推測補完しない）。未取得資産（`FileNotFoundError`）・期間外（空データ）は除外し、日本語警告に積む。analysis と optimizations の両ルートで共用する（設計方針: 例外を握りつぶさず警告として顕在化）。
+- **計算**: `frequency != D` のとき価格を `resample_prices` で先に再サンプリング（各期間の最終観測値）。その後、価格行列 → `simple_return`（列=資産）→ `cumulative_return` / `rolling_volatility(window, annualization_factor)` / `correlation_matrix` を適用。相関は共通日付に整列したリターン行列から計算し、単一資産は 1×1。
+- **レスポンス**: `AnalysisResponse`（`app/schemas/analysis.py`）= `currency`（`portfolio_base_currency`）/ `assets_used`（実際に使った資産）/ `window` / `prices` / `cumulative` / `rolling_volatility`（各 `AssetSeries`）/ `correlation`（`CorrelationMatrix`：欠損セルは `null`）/ `warnings`。
+- **警告（日本語）**: 未取得・期間外の資産は除外して警告、全資産が使えない場合は空レスポンス＋警告、1資産のみのときは「相関の解釈には2資産以上必要です。」
+- **フロントエンド**: `frontend/src/hooks/useAnalysis.ts`（`AnalysisSpec` 変更で再取得）と `AnalysisScreen.tsx`（価格・累積・ローリングボラを Recharts 折れ線、相関をヒートマップ表で表示。頻度切り替え、取得済み資産のみ対象）。`src/api/client.ts` の `getAnalysis` / `analysisQuery`。
+
+## 7. 最適化・バックテスト（最適化サービス・最適化 API は実装済み・バックテスト未実装）
 
 ### 7.1 最適化サービス（`app/optimization/`・実装済み）
 
@@ -222,24 +240,37 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
   - 結果: **生ウェイト `weights`（丸め前）＋表示用 `clean_weights`（丸め後）を併記**。`metrics`（年率リターン・年率ボラ・Sharpe）、`params`、`warnings`。CLAUDE.md「重みは丸める前の値を保存し、表示用に丸める」に従う。
 - **入力検証・エラー方針**: 空データ・非正価格（0以下）・観測不足（2時点未満）・資産不足（2資産未満）・ベンチマーク欠如（capm）は、握りつぶさず `OptimizationInputError`（日本語メッセージ、内部例外は `origin` に保持）で返す。solver 失敗（`OptimizationError`）も制約矛盾・データ不足・推定不安定として説明可能なエラーに変換。NaN は全列 NaN 行の除外（警告）と、中途欠損は PyPortfolioOpt 内部の前fill（警告）で扱い、値自体を推測補完しない。
 - **推定**: `expected_returns.mean_historical_return` / `capm_return`（ベンチマークは Series→DataFrame 化して渡す、`returns_data=False`）/ `ema_historical_return`、`risk_models.sample_cov` / `semicovariance` / `CovarianceShrinkage.ledoit_wolf()`。
-- **バックテスト**: 未実装。学習期間（lookback）を明示し、各リバランス時点で未来情報を入力に使わない。
-- **バックテスト**: 学習期間（lookback）を明示し、各リバランス時点で未来情報を入力に使わない。シグナル日と約定日を分離（次営業日約定など）。リターン指標の定義（Sharpe / Sortino / Calmar の分母、無リスク金利、年率換算頻度、ゼロ除算）を記録。
+- **バックテスト**: 未実装。学習期間（lookback）を明示し、各リバランス時点で未来情報を入力に使わない。シグナル日と約定日を分離（次営業日約定など）。リターン指標の定義（Sharpe / Sortino / Calmar の分母、無リスク金利、年率換算頻度、ゼロ除算）を記録する方針。
 - **再現性**: 入力期間・使用データ・推定方法・全パラメータ・目的関数・結果・警告・設定・データバージョン・コードバージョン・実行時刻を保存。固定データの未来部分を変更しても過去のバックテスト結果が変わらないことを検証するテストを用意する。
 - 高い成績を「最適」や「将来も有効」と表現しない。
 
+### 7.2 最適化 API（`POST /api/optimizations`・実装済み）
+
+- **役割**: `static_allocation` へ配線する同期エンドポイント。リクエストには最適化パラメータ（`StaticAllocationParams`）に加えて `asset_ids` と `start`/`end`（期間）をフラットに足した `OptimizationRequest`（`app/schemas/optimization.py`）を受け取る。
+- **ルックアヘッド回避**: `static_allocation` 自体は時系列スライスを行わないため、**`start`/`end` 入力で使用する価格期間を呼び出し側が決めて将来データ混入を排除**する。既定は全期間。
+- **入力データ**: `load_price_matrix`（`route_helpers.py`）で複数資産の adjusted_close 行列を整列。
+- **エラー方針**（400・日本語）:
+  - 未取得・期間外の資産がある場合、資産集合が揃って初めて最適化が成立するため**除外せず 400**（「データが未取得の資産があるため最適化を実行できません: …」）。
+  - 指定期間に価格データが無い場合も 400。
+  - `OptimizationInputError`（データ不足・制約矛盾・非正価格・達成不能な目標値など）は `str(exc)` をそのまま `HTTPException(detail=...)` へ変換（ユーザーに理解可能な日本語のまま顕在化）。
+- **警告の連結**: ルート層で検出した欠落行情報（`load_warnings`）をサービス層の `warnings` の先頭に連結して UI に返す。
+- **テスト**: `tests/test_optimizations_api.py`（9件）が成功系・400 系（未取得資産・期間外）・期間指定を検証。
+
 ## 8. API 設計（初期スケジュール）
 
-`GET /api/health`、`GET /api/assets`、`GET /api/data/series`、`POST /api/jobs`、`GET /api/jobs/{job_id}`、`POST /api/jobs/{job_id}/cancel`、`GET /api/runs/{run_id}`、`GET /api/runs/{run_id}/equity-curve`、`GET /api/runs/{run_id}/trades` — 詳細スキーマは `app/schemas/` の Pydantic モデルで定義。OpenAPI は実装の契約として扱う。
+実装済み: `GET /api/health`、`GET /api/assets`、`GET /api/data/series`、`GET /api/data/analysis`、`POST /api/optimizations`（詳細は §6.7 / §6.8 / §7.2、スキーマは `app/schemas/` の Pydantic モデルで定義。OpenAPI は実装の契約として扱う）。
+
+骨格のみ（実処理は未配線）: `POST /api/jobs`、`GET /api/jobs/{job_id}`、`POST /api/jobs/{job_id}/cancel`、`GET /api/runs/{run_id}`、`GET /api/runs/{run_id}/equity-curve`、`GET /api/runs/{run_id}/trades`。
 
 初期版の公開範囲は **localhost 利用のみ**。ネットワーク公開時は認証・認可、CORS許可元、レート制限、APIキーの秘密管理、入力サイズ制限、監査ログを設計してから有効化する。
 
 ## 9. GUI 画面（初期5画面）
 
-1. **データ**: 4資産の候補・データソース・期間・欠損・取得日時・価格種別を確認・更新
-2. **分析**: 価格推移・累積リターン・ローリングボラティリティ・相関ヒートマップ
-3. **最適化**: 手法・期待リターン・共分散・期間・制約・リスクフリー金利 → ウェイト・期待利得・リスク・Sharpe
-4. **バックテスト**: 期間・lookback・リバランス・コスト・初期資産 → 累積資産・ドローダウン・年次成績・配分推移・取引一覧
-5. **比較・保存**: 実行結果の比較、JSON/CSV エクスポート
+1. **データ**（実装済み）: 4資産の候補・データソース・期間・欠損・取得日時・価格種別を確認（series_type / frequency 選択、系列折れ線）
+2. **分析**（実装済み）: 価格推移・累積リターン・ローリングボラティリティ・相関ヒートマップ（frequency D/W/M 切り替え、取得済み資産のみ対象）
+3. **最適化**（プレースホルダー）: 手法・期待リターン・共分散・期間・制約・リスクフリー金利 → ウェイト・期待利得・リスク・Sharpe
+4. **バックテスト**（プレースホルダー）: 期間・lookback・リバランス・コスト・初期資産 → 累積資産・ドローダウン・年次成績・配分推移・取引一覧
+5. **比較・保存**（プレースホルダー）: 実行結果の比較、JSON/CSV エクスポート
 
 各画面で、使用したデータスナップショット・通貨方針・シグナル日/約定日規則・警告を結果の近くに表示する。
 
@@ -258,7 +289,7 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
 | 4資産の既定ティッカー | **VTI / BND / VXUS / BNDX（Yahoo 取得で確認済み）** | コードに固定せず設定で変更可能（`assets.default.json`） |
 | `ex_us_bond` の対象指数・為替方針 | BNDX（USD建て・unhedged）仮 | 国際債券ETFの為替ヘッジ有無と対象指数を確認 |
 | 履歴長・共通履歴開始日 | 実取得時の meta.firstTradeDate / regularMarketTime で確認可能 | fetch 実行後に決定し画面表示 |
-| 最適化実ロジック | **実装済み**（`app/optimization/`・`static_allocation`。`app/schemas/optimization.py` の固定値テストで検証） | rebalance_allocation・最適化 UI/API 配線 |
+| 最適化実ロジック | **実装済み**（`app/optimization/`・`static_allocation`。固定値テストで検証）。**API 配線済み**（`POST /api/optimizations`） | rebalance_allocation・最適化画面（GUI）・互換性表 |
 | バックテスト実ロジック | スタブ | 後続工程 |
 | 年率換算・カレンダー規則の詳細 | **実装済み**（`app/domain/returns.py`＋固定値テスト。年率リターンは geometric 既定、年率ボラティリティは `std(ddof=1)×√factor`、`factor=252` 引数注入） | 週次 `'W'` のアンカーと週次複利の偶発的欠損の扱い |
 | バックテスト指標の詳細定義 | 方針のみ | 実装時に固定し記録 |
@@ -271,4 +302,5 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
 - **2026-08-08** — リターン計算・年率換算フェーズ。`app/domain/returns.py` を新設（単純／対数／累積リターン・年率換算・年率ボラティリティ・頻度リサンプリング）。累積・年率は時間加重を採用。年率リターンは geometric 既定（arithmetic は PyPortfolioOpt `mean_historical_return` 互換）。欠損は補完せず NaN を返し、空系列は例外を投げない。`normalize_prices` 後の価格 series を入力とし、HTTP 配線（`/api/data/series`）はデータ表示 GUI フェーズで後続。固定値テスト（`tests/test_returns.py`）で既知の数値例と照合。
 - **2026-08-08** — データ確認 GUI 第1弾（フロントエンド データ画面＋系列 API 配線）。`GET /api/data/series` を processed Parquet へ配線し（series_type=adjusted_close/price/return/cumulative、frequency=D/W/M、NaN は JSON 配線で除外、未取得は警告＋空）、`GET /api/assets` に `data_status` を合成（`AssetDataStatus`／`summarize_series`／`snapshot_hash` 連携）。`resample_prices` を `app/domain/returns.py` に追加。フロントエンドにデータ画面（資産一覧表＋系列グラフ、series_type/frequency 選択式）を実装。**分析画面・最適化・バックテスト・`/api/jobs` からの data_fetch 配線は引き続き未実装**。
 - **2026-08-08** — 最適化サービスと単体テスト（PyPortfolioOpt）。`app/optimization/service.py` に純粋計算層の `static_allocation`（HTTP・DB 非依存、price 系列入力・`returns_data=False` 貫通、静的エイリアス `optimize`）を実装。`app/schemas/optimization.py` に入出力の型契約（`StaticAllocationParams`／`OptimizationResult`：生ウェイト `weights`＋表示用 `clean_weights` を併記）。手法（max_sharpe / min_volatility / efficient_risk / efficient_return）、期待リターン（mean_historical_return / capm_return / ema_historical_return）、共分散（sample_cov / semicovariance / ledoit_wolf）を選択可能。入力検証・solver 失敗は握りつぶさず `OptimizationInputError`（日本語・`origin` 保持）で返す。固定データの単体テスト（`tests/test_optimization.py`、合計・上下限・既知解・手法同値・エラー系）を追加。**rebalance_allocation 分離・互換性表・最適化 UI/API 配線、バックテストは引き続き未実装**。
+- **2026-08-09** — 分析 API（`GET /api/data/analysis`）と最適化 API（`POST /api/optimizations`）を実装。`app/domain/returns.py` に `rolling_volatility`（移動年率ボラ）と `correlation_matrix`（ピアソン相関）を追加。`app/api/route_helpers.py` に `load_price_matrix`（複数資産の価格行列を外側 union で整列・未取得を警告化）を新設し、両ルートで共用。スキーマは `app/schemas/analysis.py` / `app/schemas/optimization.py`（`OptimizationRequest`）。フロントエンドは `useAnalysis` フックと分析画面（価格・累積・ローリングボラの折れ線＋相関ヒートマップ、frequency 切り替え、取得済み資産のみ）を実装。最適化は同期エンドポイントとして配線（`start`/`end` でルックアヘッド回避）、エラーは 400＋日本語。テスト `tests/test_analysis_api.py`（8件）・`tests/test_optimizations_api.py`（9件）。**最適化画面（GUI）・rebalance_allocation・バックテスト・data_fetch 配線は引き続き未実装**。
 

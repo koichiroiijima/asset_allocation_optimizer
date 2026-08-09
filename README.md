@@ -89,13 +89,15 @@ make dev-frontend  # http://localhost:5173 (/api を :8000 へプロキシ)
 
 ## API 一覧（初期スケジュール）
 
-CLAUDE.md の API 設計に基づく初期エンドポイント。最適化・バックテストはジョブIDを返す非同期方式です。**ジョブはメモリ内の状態遷移骨格のみ実装済みで、実処理（最適化・バックテスト・データ取得）への配線は未実施**です（プレースホルダー）。
+CLAUDE.md の API 設計に基づく初期エンドポイント。**最適化は同期エンドポイント（`POST /api/optimizations`）で実行**し、バックテスト・データ取得のジョブ方式（`/api/jobs`）は**メモリ内の状態遷移骨格のみ実装済みで、実処理（バックテスト・データ取得）への配線は未実施**です（プレースホルダー）。
 
 | メソッド | パス | 内容 | 状態 |
 | --- | --- | --- | --- |
 | `GET` | `/api/health` | 稼働状態 | 実装済み |
 | `GET` | `/api/assets` | 資産定義・候補商品・**データ状態** | 実装済み（processed から状態を合成） |
 | `GET` | `/api/data/series` | 正規化済み系列（価格・リターン・累積、D/W/M 再サンプリング、NaN 除外） | 実装済み（processed に配線） |
+| `GET` | `/api/data/analysis` | 分析画面用データ（複数資産の価格・累積リターン・ローリングボラ・相関） | 実装済み（未取得資産は除外して警告） |
+| `POST` | `/api/optimizations` | 最適化（`static_allocation`）の同期実行 | 実装済み（`start`/`end` でルックアヘッド回避） |
 | `POST` | `/api/jobs` | ジョブ作成（`data_fetch` / `optimization` / `backtest`） | 骨格のみ（実処理は未配線） |
 | `GET` | `/api/jobs/{job_id}` | ジョブ状態（queued/running/succeeded/failed/cancelled） | 骨格のみ（メモリ内） |
 | `POST` | `/api/jobs/{job_id}/cancel` | 実行中ジョブのキャンセル | 骨格のみ |
@@ -148,6 +150,39 @@ uv run python -m app.cli --version
 
 > ⚠️ **利用上の注意**: Yahoo Finance のデータは**非商用・研究目的**の利用に限定し、再配布しないでください（利用規約を確認してください）。取得間隔は控えめにしてください。`query1` ホストは 429 を返すため、本実装は `query2` を使用します。
 
+## 最適化 API（`POST /api/optimizations`）
+
+最適化サービス（PyPortfolioOpt の `static_allocation`）を同期実行します。対象資産の価格データ（processed Parquet）を読み込み、手法・期待リターン・共分散・制約に応じてウェイトと期待指標を返します。
+
+```bash
+# 例: 最大シャープレシオ（既定）で 4資産を最適化
+curl -X POST http://localhost:8000/api/optimizations \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "asset_ids": ["us_equity", "us_bond", "ex_us_equity", "ex_us_bond"],
+    "optimization_method": "max_sharpe",
+    "expected_return_method": "mean_historical_return",
+    "covariance_method": "sample_cov",
+    "risk_free_rate": 0.0,
+    "weight_bounds": [0.0, 0.5]
+  }'
+```
+
+主な入力:
+
+| 項目 | 既定 | 説明 |
+| --- | --- | --- |
+| `asset_ids` | （必須） | 対象資産の論理ID一覧 |
+| `start` / `end` | なし（全期間） | 使用する価格の期間。**ルックアヘッド回避**はこの期間指定で保証される |
+| `optimization_method` | `max_sharpe` | `max_sharpe` / `min_volatility` / `efficient_risk` / `efficient_return` |
+| `expected_return_method` | `mean_historical_return` | `mean_historical_return` / `capm_return` / `ema_historical_return`（`capm_return` はベンチマーク系列が必要） |
+| `covariance_method` | `sample_cov` | `sample_cov` / `semicovariance` / `ledoit_wolf` |
+| `risk_free_rate` | `0.0` | リスクフリー金利 |
+| `weight_bounds` | `[0.0, 1.0]` | 全資産共通のウェイト上下限。`asset_weight_bounds` で資産別に上書き可 |
+| `target_return` / `target_volatility` | なし | 各々 `efficient_return` / `efficient_risk` に必須 |
+
+レスポンスには、**丸め前の生ウェイト `weights` と表示用 `clean_weights`**、年率換算の `metrics`（期待リターン・ボラティリティ・Sharpe）、入力 `params`、`warnings`（欠落行情報など）が含まれます。未取得資産・期間外・達成不能な目標値は **400（日本語メッセージ）** を返します。
+
 ## 通貨・FX 方針（初期版）
 
 - `portfolio_base_currency` = **JPY**（ポートフォリオ基準通貨。初期版の必須設定）
@@ -159,22 +194,24 @@ USD建てETFを日本円基準で評価する場合の USD/JPY エクスポー�
 
 ## 現在の実装状態
 
-初期ひな型（データが動き、テストが通る全体の骨格）と、4資産のデータ取得 CLI、**データ確認 GUI（第1弾）** を構築済みです。具体的には:
+初期ひな型（データが動き、テストが通る全体の骨格）に加え、4資産のデータ取得 CLI、**データ確認 GUI（第1弾）**、**分析画面・最適化 API** まで実装済みです。具体的には:
 
 - **完了**: プロジェクト構造、設定管理（Pydantic Settings）、データレコードと repository 抽象（Parquet + SQLite 索引 + スナップショットハッシュ）、API スキーマとルート、フロントエンド5画面の骨格、テスト基盤。
 - **完了**: Yahoo Finance からのデータ取得 CLI（`fetch` → raw → 正規化 → processed → `export-csv`、取得履歴の SQLite 記録、raw/processed のスナップショットハッシュ連携）。
 - **完了**: リターン計算・年率換算（`app/domain/returns.py`）。単純／対数リターン、累積リターン（時間加重）、年率換算（geometric 既定）、年率ボラティリティ、頻度リサンプリング（単純=複利合成／対数=和）。定義は [`docs/design.md`](docs/design.md) §6.6 を参照。
 - **完了**: **データ確認 GUI（第1弾）**。`GET /api/data/series` を実データ（processed Parquet）へ配線し、series_type（adjusted_close / price / return / cumulative）と frequency（D/W/M）の再サンプリングを実装。`GET /api/assets` に各資産のデータ状態（取得可否・期間・行数・欠損・出所・取得日時・スナップショットハッシュ）を合成。フロントエンドの「データ」画面で 4 資産の状態一覧表と、選択資産の系列折れ線グラフ（Recharts）を確認できます。
 - **完了**: **最適化サービス（PyPortfolioOpt・`static_allocation`）**。`app/optimization/service.py` に HTTP・DB 非依存の純粋計算層を実装。手法（max_sharpe / min_volatility / efficient_risk / efficient_return）、期待リターン（mean_historical_return / capm_return / ema_historical_return）、共分散（sample_cov / semicovariance / ledoit_wolf）を選択可能。生ウェイトと表示用 `clean_weights` を併記。入力検証・solver 失敗は日本語エラーで返す。固定データの単体テスト付き。
-- **予定（後続工程）**: リバランス最適化（`rebalance_allocation`）、ルックアヘッド回避のバックテストエンジン、評価指標、最適化・バックテストの API/GUI 配線、分析画面（価格推移・累積リターン・ローリングボラティリティ・相関ヒートマップ）、`/api/jobs` からの data_fetch 配線。
+- **完了**: **最適化 API（`POST /api/optimizations`）**。`static_allocation` へ配線し、`OptimizationRequest`（対象資産・期間 `start`/`end`・手法・共分散・リスクフリー金利・制約）で同期実行。未取得資産・期間外は 400（日本語）、`OptimizationInputError` はユーザーに理解可能なメッセージで返す。`start`/`end` 入力によるルックアヘッド回避。API テスト付き。
+- **完了**: **分析 API（`GET /api/data/analysis`）と分析画面**。processed Parquet から複数資産の価格推移・累積リターン・ローリングボラティリティ・相関行列をまとめて返し（`app/domain/returns.py` の `rolling_volatility` / `correlation_matrix` を再利用）、フロントエンドで日次/週次/月次を切り替えて Recharts 折れ線＋相関ヒートマップを表示。未取得資産は除外して日本語警告を附す。
+- **予定（後続工程）**: リバランス最適化（`rebalance_allocation`）、ルックアヘッド回避のバックテストエンジン、評価指標、最適化の GUI（手法・期間・制約の選択フォーム）、`/api/jobs` からの data_fetch 配線。
 
-バックテストの本体と、最適化の API・GUI 配線は**未実装**です。高い成績を「最適」や「将来も有効」と解釈しないでください。
+バックテストの本体と、最適化画面（GUI）は**未実装**です。高い成績を「最適」や「将来も有効」と解釈しないでください。
 
 ## 既知の制限
 
 - 実データ取得は **CLI 経由でのみ**接続しています。API ジョブ／GUI からの取得は未接続です（`/api/jobs` の data_fetch は未配線）。
 - Yahoo Finance のデータは非商用・研究目的に限定（利用規約を確認）。取得間隔は控えめにしてください。
-- 最適化はサービス層（`static_allocation`）のみ実装済みで、API ルート・GUI・`rebalance_allocation` は未実装。バックテスト実ロジックは未実装（API/スキーマは検証済みのプレースホルダー）。分析画面（価格推移・相関等）も未実装です。
+- 最適化は API（`POST /api/optimizations`）まで実装済みで、GUI・`rebalance_allocation` は未実装。バックテスト実ロジックは未実装（API/スキーマは検証済みのプレースホルダー）。分析画面（価格推移・相関等）は実装済み。
 - アプリは **localhost 利用限定**（初期版）。ネットワーク公開時は認証・認可、CORS、レート制限、APIキーの秘密管理、監査ログを設計してから有効化します。
 - 再現可能な `make test` 相当の全テスト、lint、型チェック、開発サーバー起動は上記「標準コマンド」で実行できます。
 

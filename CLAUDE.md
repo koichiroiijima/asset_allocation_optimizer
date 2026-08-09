@@ -26,3 +26,16 @@
 - コードを書く前に、対象ファイル、採用する仮定、検証方法を短く提示する。完了時には変更ファイル、実行したテスト、残る既知の制約を報告する。
 - 例外を握りつぶさず、ユーザーに理解可能なメッセージと内部ログを分ける。
 - このファイルは実装上の作業規範を扱い、詳細な金融モデル仕様は`docs/design.md`等に分離する。両者が矛盾する場合は、ユーザーの最新指示を優先し、設計メモを更新する。
+
+## 実装状況サマリ（2026-08-09時点）
+
+実装済み（進捗詳細は [`docs/TODO.md`](docs/TODO.md)）：
+
+- **データ取得**: Yahoo Finance chart API（query2）→ `app.cli fetch` / `export-csv` パイプライン（raw / processed Parquet、スナップショットハッシュ、SQLite fetch_history）。4資産は VTI / BND / VXUS / BNDX。
+- **リターン計算**: `app/domain/returns.py`（単純／対数／累積リターン・年率換算・頻度リサンプリング・`rolling_volatility`・`correlation_matrix`）。欠損は補完しない。
+- **GUI**: データ画面（系列グラフ）と分析画面（価格推移・累積リターン・ローリングボラ・相関ヒートマップ）を実装。`GET /api/data/series` / `GET /api/data/analysis` を配線。
+- **最適化**: `app/optimization/service.py` の `static_allocation`（PyPortfolioOpt）と `POST /api/optimizations`（同期・`start`/`end` でルックアヘッド回避）まで実装済み。
+
+未実装（後続工程）：最適化画面（GUI）、rebalance_allocation、バックテスト本体と評価指標、`/api/jobs` からの data_fetch 配線、比較・保存画面。
+
+内部仕様・設計判断は [`docs/design.md`](docs/design.md)、API の使い方・ユーザー向け操作は [`README.md`](README.md) に記載。

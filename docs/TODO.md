@@ -41,6 +41,8 @@
 - [x] 欠損方針（補完しない、空系列は例外を投げない）
 - [x] 固定値テスト（`tests/test_returns.py`）
 - [x] `resample_prices`（価格系列の D/W/M 集約、リターン系は `resample_returns` で複利合成）
+- [x] ローリングボラティリティ（`rolling_volatility`、移動年率ボラ・窓 2 以上を検証）
+- [x] 相関行列（`correlation_matrix`、ピアソン相関・ペアごとに観測で NaN 除外）
 
 ## データ確認 GUI（第1弾）
 
@@ -49,11 +51,11 @@
 - [x] フロントエンド データ画面（資産一覧表＋系列グラフ、series_type / frequency 選択式）
 - [x] データ画面のテスト・API クライアントテスト
 
-## 最適化（static_allocation 実装済み）
+## 最適化（static_allocation・最適化 API 実装済み）
 
 - [x] PyPortfolioOpt 最適化サービスと単体テスト（`static_allocation`）
-- [ ] 最適化 API ルート配線（`POST /api/jobs` / 同期エンドポイント）
-- [ ] 手法・パラメータの選択 UI（expected return / covariance / 制約 / リスクフリー金利）
+- [x] 最適化 API ルート配線（`POST /api/optimizations` 同期エンドポイント＋API テスト、`OptimizationRequest` の `start`/`end` でルックアヘッド回避）
+- [ ] 手法・パラメータの選択 UI（最適化画面・GUI。expected return / covariance / 制約 / リスクフリー金利の入力と結果表示）
 - [ ] rebalance_allocation（リバランス最適化）の実装
 - [ ] 互換性表・入力範囲・既定値のスキーマ共用
 
@@ -67,8 +69,8 @@
 
 ## 画面（分析以降）
 
-- [ ] 分析画面（価格推移・累積リターン・ローリングボラティリティ・相関ヒートマップ）
-- [ ] 最適化画面
+- [x] 分析画面（価格推移・累積リターン・ローリングボラ・相関ヒートマップ）— `GET /api/data/analysis`（`app/api/routes/analysis.py` / `app/schemas/analysis.py`）を配線、`app/api/route_helpers.py` の `load_price_matrix` で複数資産を外側 union 整列、未取得資産は除外して日本語警告、`frontend/src/hooks/useAnalysis.ts` + `src/api/client.ts` の `getAnalysis` と連携
+- [ ] 最適化画面（手法・期間・制約の入力と結果表示）
 - [ ] バックテスト画面
 - [ ] 比較・保存画面（複数結果の比較、JSON / CSV エクスポート）
 
