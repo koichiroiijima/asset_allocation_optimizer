@@ -68,8 +68,10 @@ def test_fetch_history_maps_fields() -> None:
     assert records[0].retrieved_at is not None
     assert (now - records[0].retrieved_at).total_seconds() < 60  # type: ignore[operator]
 
-    # URL に VTI と range=max が含まれる（start/end 未指定）
+    # URL に VTI と period1（start/end 未指定でも日足を得るための起点）が含まれる
     assert calls[0].url.path == "/v8/finance/chart/VTI"
+    assert calls[0].url.params.get("period1") is not None
+    assert "range" not in calls[0].url.params
 
 
 def test_fetch_history_with_dates_sets_period() -> None:
@@ -90,6 +92,27 @@ def test_fetch_history_with_dates_sets_period() -> None:
     assert "range" not in seen
     assert int(seen["period1"]) == int(start.strftime("%s"))
     assert int(seen["period2"]) == int(end.strftime("%s"))
+
+
+def test_fetch_history_without_dates_uses_early_period1() -> None:
+    """start/end 未指定（全履歴）でも range=max を使わず、十分過去の period1 を付けて日足を得る。
+
+    `period1` だけだと Yahoo が endDate=-1 として 400 を返すため、`period2`（現在）も必ず付与する。
+    """
+    seen: dict[str, str | int] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(request.url.params)
+        return httpx.Response(200, json=_fixture_body())
+
+    provider = _provider(httpx.Client(transport=httpx.MockTransport(handler)))
+    provider.fetch_history("us_equity")
+
+    assert "period1" in seen
+    assert "period2" in seen
+    assert "range" not in seen
+    # Yahoo が月足にダウンサンプリングしないよう、2000-01-01 起点の日足を要求する
+    assert int(seen["period1"]) == int(datetime(2000, 1, 1, tzinfo=UTC).strftime("%s"))
 
 
 def test_default_ua_and_chart_url() -> None:

@@ -81,7 +81,7 @@ def get_analysis(
     if not used_assets:
         # 全資産が未取得・期間外の場合は空レスポンス＋警告（例外にしない）。
         return AnalysisResponse(
-            currency=settings.portfolio_base_currency,
+            currency=settings.instrument_trading_currency,
             assets_used=[],
             window=request.window,
             correlation=CorrelationMatrix(),
@@ -109,7 +109,7 @@ def get_analysis(
         warnings.append("相関の解釈には2資産以上必要です。")
 
     return AnalysisResponse(
-        currency=settings.portfolio_base_currency,
+        currency=settings.instrument_trading_currency,
         assets_used=used_assets,
         window=request.window,
         prices=[AssetSeries(asset_id=a, points=_to_points(prices[a])) for a in used_assets],

@@ -49,13 +49,15 @@ def get_series(settings: SettingsDep, spec: SeriesSpecDep) -> SeriesResponse:
     """指定された系列仕様に応じた正規化済み系列を返す。"""
     warnings: list[str] = []
     repo = ParquetPriceRepository(settings.processed_dir)
+    # 価格データの通貨を返す（実データの通貨。未取得時は取引通貨設定へフォールバック）。
+    fallback_currency = settings.instrument_trading_currency
     try:
         df = repo.load_series(spec.asset_id, spec.start, spec.end)
     except FileNotFoundError:
         # データ未取得：空系列＋警告で明示（例外を握りつぶさない）
         return SeriesResponse(
             asset_id=spec.asset_id,
-            currency=settings.portfolio_base_currency,
+            currency=fallback_currency,
             series_type=spec.series_type,
             warnings=[
                 f"データが未取得です（{spec.asset_id}）。先にデータ取得 CLI を実行してください。"
@@ -65,12 +67,14 @@ def get_series(settings: SettingsDep, spec: SeriesSpecDep) -> SeriesResponse:
     if df.empty:
         return SeriesResponse(
             asset_id=spec.asset_id,
-            currency=settings.portfolio_base_currency,
+            currency=fallback_currency,
             series_type=spec.series_type,
             warnings=["指定期間にデータがありません。"],
         )
 
     df = df.sort_values("date")
+    # データレコードの通貨列（例: USD）。同一資産で混在しない前提だが、不明な場合は設定値を用いる。
+    data_currency = str(df["currency"].iloc[0]) if "currency" in df.columns else fallback_currency
     adjusted = df.set_index("date")["adjusted_close"].astype("float64")
     raw = df.set_index("date")["raw_close"].astype("float64")
 
@@ -94,7 +98,7 @@ def get_series(settings: SettingsDep, spec: SeriesSpecDep) -> SeriesResponse:
 
     return SeriesResponse(
         asset_id=spec.asset_id,
-        currency=settings.portfolio_base_currency,
+        currency=data_currency,
         series_type=spec.series_type,
         points=points,
         warnings=warnings,

@@ -67,7 +67,7 @@ def test_analysis_returns_assets_and_points(client: TestClient, tmp_settings: Se
     assert resp.status_code == 200
     body = resp.json()
 
-    assert body["currency"] == tmp_settings.portfolio_base_currency
+    assert body["currency"] == tmp_settings.instrument_trading_currency
     assert body["assets_used"] == ["us_equity", "us_bond"]
     assert body["window"] == 60
 

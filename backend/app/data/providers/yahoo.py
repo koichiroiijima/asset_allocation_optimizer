@@ -77,14 +77,21 @@ class YahooPriceProvider:
         return CHART_URL.format(symbol=symbol)
 
     def _request(self, asset_id: str, start: date | None, end: date | None) -> httpx.Response:
+        """Yahoo chart API へ日次データを要求する。
+
+        `interval=1d` でも `range=max` を使って全履歴を要求すると Yahoo 側が月足に
+        ダウンサンプリングして返す（2026-08-08 実測で確認）。このため start/end 未指定の
+        全履歴でも `period1` を十分過去に明示して日足を取得する（4資産はいずれも 2000 年
+        以降が上場日で、2000-01-01 起点で先頭までカバーできる）。
+
+        注意: `period1` だけを指定して `period2` を省略すると Yahoo が endDate=-1 として
+        400 を返す。このため end 未指定でも `period2` に現在時刻（UTC）を必ず付与する。
+        """
         params: dict[str, str | int] = {"interval": "1d", "events": "div"}
-        if start is None and end is None:
-            params["range"] = "max"
-        else:
-            if start is not None:
-                params["period1"] = int(start.strftime("%s"))
-            if end is not None:
-                params["period2"] = int(end.strftime("%s"))
+        period1 = start if start is not None else date(2000, 1, 1)
+        params["period1"] = int(period1.strftime("%s"))
+        end_ts = end if end is not None else datetime.now(UTC).date()
+        params["period2"] = int(end_ts.strftime("%s"))
         return self._client.get(self._url_for(asset_id), params=params)
 
     def fetch_history(

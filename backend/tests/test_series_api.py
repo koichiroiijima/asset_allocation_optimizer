@@ -42,7 +42,7 @@ def test_series_adjusted_close_points(client: TestClient, tmp_settings: Settings
     body = resp.json()
     assert body["asset_id"] == "us_equity"
     assert body["series_type"] == "adjusted_close"
-    assert body["currency"] == tmp_settings.portfolio_base_currency
+    assert body["currency"] == tmp_settings.instrument_trading_currency
 
     points = body["points"]
     # 01-03 の adjusted_close は NaN なので除外される
