@@ -33,3 +33,183 @@ header.app-header h1 {
 main {
   padding: 1rem 0;
 }
+
+/* データ・分析・最適化画面で共用するユーティリティクラス */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+  margin: 0.75rem 0;
+}
+
+.controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: #5a6270;
+}
+
+.controls input,
+.controls select {
+  font: inherit;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #c9cfd8;
+  border-radius: 4px;
+  background: #fff;
+  color: #1f2430;
+}
+
+.error-box {
+  border: 1px solid #d9534f;
+  background: #fdf1f1;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+}
+
+.error-box p {
+  margin: 0 0 0.5rem;
+}
+
+.error-box button {
+  font: inherit;
+  padding: 0.3rem 0.9rem;
+  border: 1px solid #c9cfd8;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.error-text {
+  color: #b9473f;
+}
+
+.warning-text {
+  color: #9a6b16;
+  margin: 0.5rem 0;
+}
+
+.hint-text {
+  color: #7a828f;
+  font-size: 0.85rem;
+  margin: 0.5rem 0;
+}
+
+.status-ok {
+  color: #1e7f4d;
+  font-weight: 600;
+}
+
+.status-warn {
+  color: #9a6b16;
+  font-weight: 600;
+}
+
+.series-meta {
+  color: #5a6270;
+  font-size: 0.9rem;
+  margin: 0.5rem 0;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.5rem 0 1rem;
+  font-size: 0.9rem;
+}
+
+th,
+td {
+  border: 1px solid #d8dce3;
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  background: #eef1f5;
+}
+
+.opt-form {
+  margin: 0.75rem 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.75rem 1rem;
+  align-items: end;
+  max-width: 900px;
+}
+
+.opt-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: #5a6270;
+}
+
+.opt-form input,
+.opt-form select {
+  font: inherit;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #c9cfd8;
+  border-radius: 4px;
+  background: #fff;
+  color: #1f2430;
+}
+
+.opt-form .opt-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.opt-form button[type='submit'] {
+  font: inherit;
+  padding: 0.45rem 1.2rem;
+  border: none;
+  border-radius: 4px;
+  background: #2a6e9b;
+  color: #fff;
+  cursor: pointer;
+}
+
+.opt-form button[type='submit']:disabled {
+  background: #9db6c9;
+  cursor: not-allowed;
+}
+
+.result-table td:first-child {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.corr-table {
+  max-width: 720px;
+}
+
+.corr-table th,
+.corr-table td {
+  text-align: center;
+  min-width: 5.5rem;
+}
+
+.corr-table th {
+  white-space: nowrap;
+}
+
+.corr-cell {
+  color: #fff;
+  font-weight: 600;
+}
+
+.corr-cell-light {
+  color: #1f2430;
+}
+
+.corr-header-row th {
+  background: #eef1f5;
+}

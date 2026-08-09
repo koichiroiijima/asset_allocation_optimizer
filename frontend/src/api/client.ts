@@ -1,4 +1,13 @@
-import type { AssetListResponse, HealthResponse, SeriesResponse, SeriesSpec } from './types';
+import type {
+  AnalysisResponse,
+  AnalysisSpec,
+  AssetListResponse,
+  HealthResponse,
+  OptimizationRequest,
+  OptimizationResponse,
+  SeriesResponse,
+  SeriesSpec,
+} from './types';
 
 /**
  * バックエンド API の小さな fetch ラッパー。
@@ -23,6 +32,25 @@ async function getJson<T>(path: string): Promise<T> {
   return (await resp.json()) as T;
 }
 
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const resp = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) {
+    let message = `${resp.status} ${resp.statusText}`;
+    try {
+      const data = (await resp.json()) as { detail?: unknown };
+      if (data && typeof data.detail === 'string') message = data.detail;
+    } catch {
+      // 本文が JSON でない場合はステータスのみで返す
+    }
+    throw new Error(message);
+  }
+  return (await resp.json()) as T;
+}
+
 /** SeriesSpec をクエリ文字列に変換する。未指定の項目は省略。 */
 function seriesQuery(spec: SeriesSpec): string {
   const params = new URLSearchParams({ asset_id: spec.asset_id });
@@ -33,10 +61,23 @@ function seriesQuery(spec: SeriesSpec): string {
   return params.toString();
 }
 
+/** AnalysisSpec をクエリ文字列に変換する。asset_ids は繰り返し指定。 */
+function analysisQuery(spec: AnalysisSpec): string {
+  const params = new URLSearchParams();
+  for (const asset_id of spec.asset_ids) params.append('asset_ids', asset_id);
+  if (spec.start) params.set('start', spec.start);
+  if (spec.end) params.set('end', spec.end);
+  if (spec.frequency) params.set('frequency', spec.frequency);
+  if (spec.window !== undefined) params.set('window', String(spec.window));
+  return params.toString();
+}
+
 export interface ApiClient {
   getHealth: () => Promise<HealthResponse>;
   getAssets: () => Promise<AssetListResponse>;
   getSeries: (spec: SeriesSpec) => Promise<SeriesResponse>;
+  getAnalysis: (spec: AnalysisSpec) => Promise<AnalysisResponse>;
+  optimize: (payload: OptimizationRequest) => Promise<OptimizationResponse>;
 }
 
 export function createApiClient(): ApiClient {
@@ -44,6 +85,10 @@ export function createApiClient(): ApiClient {
     getHealth: () => getJson<HealthResponse>('/health'),
     getAssets: () => getJson<AssetListResponse>('/assets'),
     getSeries: (spec: SeriesSpec) => getJson<SeriesResponse>(`/data/series?${seriesQuery(spec)}`),
+    getAnalysis: (spec: AnalysisSpec) =>
+      getJson<AnalysisResponse>(`/data/analysis?${analysisQuery(spec)}`),
+    optimize: (payload: OptimizationRequest) =>
+      postJson<OptimizationResponse>('/optimizations', payload),
   };
 }
 

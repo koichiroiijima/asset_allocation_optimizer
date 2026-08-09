@@ -137,7 +137,12 @@ def _build_efficient_frontier(
 
 
 def _apply_method(ef: EfficientFrontier, params: StaticAllocationParams) -> None:
-    """目的関数を実行する。解けないときは説明可能な OptimizationInputError を投げる。"""
+    """目的関数を実行する。解けないときは説明可能な OptimizationInputError を投げる。
+
+    PyPortfolioOpt は達成不能な目標（efficient_risk の最小分散未満・efficient_return の
+    最大リターン超過など）を `ValueError` で投げる。これを握りつぶさず、ユーザーに
+    理解可能な日本語メッセージへ変換する。
+    """
     method = params.optimization_method
     try:
         if method == "max_sharpe":
@@ -155,6 +160,13 @@ def _apply_method(ef: EfficientFrontier, params: StaticAllocationParams) -> None
             f"最適化に失敗しました（手法: {method}）。"
             "制約の矛盾・データ不足・推定の不安定さが考えられます。"
             "ウェイト上下限・目標値・入力データを確認してください。",
+            origin=exc,
+        ) from exc
+    except ValueError as exc:  # 達成不能な目標値（最小分散未満の目標ボラ等）
+        raise OptimizationInputError(
+            f"最適化できませんでした（手法: {method}）。"
+            "目標値（リターン／ボラティリティ）が達成不能な範囲にあります。"
+            "目標値を高く（ボラ）／低く（リターン）して再実行してください。",
             origin=exc,
         ) from exc
 

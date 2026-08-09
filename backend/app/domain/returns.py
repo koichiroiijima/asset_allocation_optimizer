@@ -124,6 +124,46 @@ def annualize_volatility(
     return float(clean.std(ddof=1) * math.sqrt(float(annualization_factor)))
 
 
+def rolling_volatility(
+    returns: pd.Series,
+    window: int,
+    annualization_factor: int = 252,
+) -> pd.Series:
+    """リターン系列のローリング（移動）年率ボラティリティ系列を返す。
+
+    各時点で直近 `window` 個の観測（NaN を除外した標本標準偏差 ddof=1）に
+    `sqrt(factor)` を掛けて年率換算する。`window` 個未満の観測しかない
+    先頭区間は NaN になる。欠損値は補完せず NaN のまま伝播する
+    （`rolling().std` は min_periods 既定により window 個に満たない窓を NaN に）。
+
+    - `window < 2` は集計不能なため `ValueError` を投げる（範囲外の入力）。
+    - 空・全 NaN の Series は全 NaN の Series を返す（例外を投げない）。
+    """
+    if window < 2:
+        raise ValueError(f"rolling_volatility の window は2以上必要です（指定: {window}）")
+    source = returns.astype("float64")
+    if source.dropna().size < 2:
+        return pd.Series(np.nan, index=source.index, dtype="float64")
+    vol = source.rolling(window=window).std(ddof=1) * math.sqrt(float(annualization_factor))
+    return vol.astype("float64")
+
+
+def correlation_matrix(returns: pd.DataFrame) -> pd.DataFrame:
+    """リターン系列（列=資産）のピアソン相関行列を返す。
+
+    pandas の `DataFrame.corr()` に従い、NaN は列（資産）ペアごとに
+    観測がある組だけを使って除外する（値を推測補完しない）。行が 1 未満、
+    列が 1 未満の場合は空/1×1 の行列を返す。単一資産（1 列）は 1×1 行列で
+    対角成分が 1.0 になる。
+
+    注: 観測数の少ないペアの相関は安定しない。呼び出し側で観測数を警告し、
+    解釈を慎重にする（CLAUDE.md: 金融データの値は推測補完しない）。
+    """
+    if returns.empty or returns.shape[1] < 1:
+        return pd.DataFrame(index=returns.columns, columns=returns.columns, dtype="float64")
+    return returns.corr()
+
+
 def resample_returns(
     returns: pd.Series,
     frequency: Frequency = "M",

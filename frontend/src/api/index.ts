@@ -1,10 +1,16 @@
 export { api, createApiClient } from './client';
 export type { ApiClient } from './client';
 export type {
+  AnalysisResponse,
+  AnalysisSpec,
   ApiError,
   Asset,
   AssetDataStatus,
   AssetListResponse,
+  AssetSeries,
+  CorrelationMatrixResponse,
+  CovarianceMethod,
+  ExpectedReturnMethod,
   Frequency,
   HealthResponse,
   HealthStatus,
@@ -12,6 +18,10 @@ export type {
   JobSummary,
   JobType,
   LogicalAsset,
+  OptimizationMethod,
+  OptimizationRequest,
+  OptimizationResponse,
+  OptimizationMetrics,
   SeriesPoint,
   SeriesResponse,
   SeriesSpec,

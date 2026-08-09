@@ -9,10 +9,12 @@ from app.domain.returns import (
     annualize_log_return,
     annualize_return,
     annualize_volatility,
+    correlation_matrix,
     cumulative_return,
     log_return,
     resample_prices,
     resample_returns,
+    rolling_volatility,
     simple_return,
 )
 
@@ -20,9 +22,11 @@ __all__ = [
     "annualize_log_return",
     "annualize_return",
     "annualize_volatility",
+    "correlation_matrix",
     "cumulative_return",
     "log_return",
     "resample_prices",
     "resample_returns",
+    "rolling_volatility",
     "simple_return",
 ]

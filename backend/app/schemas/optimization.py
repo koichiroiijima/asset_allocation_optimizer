@@ -6,6 +6,7 @@ CLAUDE.md: 最適化サービスはデータ期間・リターン頻度（年率
 手法の選択肢は CLAUDE.md「最低限、以下を選択可能にする」に従う。
 """
 
+from datetime import date
 from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -63,6 +64,19 @@ class StaticAllocationParams(BaseModel):
         return self
 
 
+class OptimizationRequest(StaticAllocationParams):
+    """`POST /api/optimizations` のリクエストボディ。
+
+    `StaticAllocationParams` の最適化パラメータに、対象資産一覧と入力価格の期間を
+    フラットに足したもの。期間（`start`/`end`）でルックアヘッドを防ぐ（サービスは
+    時系列スライスを行わないため、将来データ混入は呼び出し側が排除して保証する）。
+    """
+
+    asset_ids: list[str] = Field(min_length=1)
+    start: date | None = None
+    end: date | None = None
+
+
 class OptimizationMetrics(BaseModel):
     """最適配分の期待値指標（年率換算）。"""
 
@@ -91,6 +105,7 @@ __all__ = [
     "ExpectedReturnMethod",
     "OptimizationMethod",
     "OptimizationMetrics",
+    "OptimizationRequest",
     "OptimizationResult",
     "StaticAllocationParams",
 ]
