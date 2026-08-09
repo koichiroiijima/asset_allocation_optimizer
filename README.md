@@ -89,19 +89,19 @@ make dev-frontend  # http://localhost:5173 (/api を :8000 へプロキシ)
 
 ## API 一覧（初期スケジュール）
 
-CLAUDE.md の API 設計に基づく初期エンドポイント。最適化・バックテストはジョブIDを返す非同期方式です（現在はスキーマ検証用のプレースホルダー）。
+CLAUDE.md の API 設計に基づく初期エンドポイント。最適化・バックテストはジョブIDを返す非同期方式です。**ジョブはメモリ内の状態遷移骨格のみ実装済みで、実処理（最適化・バックテスト・データ取得）への配線は未実施**です（プレースホルダー）。
 
 | メソッド | パス | 内容 | 状態 |
 | --- | --- | --- | --- |
 | `GET` | `/api/health` | 稼働状態 | 実装済み |
 | `GET` | `/api/assets` | 資産定義・候補商品・**データ状態** | 実装済み（processed から状態を合成） |
 | `GET` | `/api/data/series` | 正規化済み系列（価格・リターン・累積、D/W/M 再サンプリング、NaN 除外） | 実装済み（processed に配線） |
-| `POST` | `/api/jobs` | ジョブ作成（`data_fetch` / `optimization` / `backtest`） | スキーマのみ（未配線） |
-| `GET` | `/api/jobs/{job_id}` | ジョブ状態（queued/running/succeeded/failed/cancelled） |
-| `POST` | `/api/jobs/{job_id}/cancel` | 実行中ジョブのキャンセル |
-| `GET` | `/api/runs/{run_id}` | 実行結果の概要 |
-| `GET` | `/api/runs/{run_id}/equity-curve` | 累積損益 |
-| `GET` | `/api/runs/{run_id}/trades` | 取引一覧 |
+| `POST` | `/api/jobs` | ジョブ作成（`data_fetch` / `optimization` / `backtest`） | 骨格のみ（実処理は未配線） |
+| `GET` | `/api/jobs/{job_id}` | ジョブ状態（queued/running/succeeded/failed/cancelled） | 骨格のみ（メモリ内） |
+| `POST` | `/api/jobs/{job_id}/cancel` | 実行中ジョブのキャンセル | 骨格のみ |
+| `GET` | `/api/runs/{run_id}` | 実行結果の概要 | 骨格のみ（メモリ内） |
+| `GET` | `/api/runs/{run_id}/equity-curve` | 累積損益 | 骨格のみ（プレースホルダー） |
+| `GET` | `/api/runs/{run_id}/trades` | 取引一覧 | 骨格のみ（プレースホルダー） |
 
 OpenAPI スキーマは起動後に `http://localhost:8000/docs` で確認できます。
 

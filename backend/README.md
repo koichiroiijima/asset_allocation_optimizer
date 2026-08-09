@@ -32,9 +32,10 @@ uv run mypy app        # 型チェック
 
 - `app/config/` — Pydantic Settings と資産マッピング設定
 - `app/schemas/` — API スキーマ（OpenAPI の契約）
-- `app/domain/` — 純粋な計算ロジック（現在はプレースホルダー）
+- `app/domain/` — 純粋な計算ロジック（リターン計算・年率換算・頻度リサンプリング `returns.py`）
 - `app/data/` — データプロバイダー／リポジトリ抽象
-- `app/optimization/`, `app/backtest/` — 最適化／バックテスト（現在はプレースホルダー）
+- `app/optimization/` — 最適化サービス（PyPortfolioOpt `static_allocation` 実装済み）
+- `app/backtest/` — バックテスト（プレースホルダー）
 - `app/api/` — FastAPI ルーター
 
 詳細はルート `README.md` と `docs/design.md` を参照。

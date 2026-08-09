@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | バックエンド | Python 3.11+ / FastAPI / Uvicorn | CLAUDE.md 指定。uv が 3.11 を調達（ローカルは 3.10 のため） |
 | 設定管理 | Pydantic Settings（`ASSET_ALLOC__` プレフィックス） | 型付き・`.env` 対応・テスト注入が容易 |
-| 数値 | pandas / numpy / scipy / PyPortfolioOpt | CLAUDE.md 指定。最適化エンジンは後続工程 |
+| 数値 | pandas / numpy / scipy / PyPortfolioOpt | CLAUDE.md 指定。最適化エンジン `static_allocation` は実装済み |
 | データ保存 | Parquet（価格系列）+ SQLite（索引・資産定義・ジョブ・結果） | 分析に適した列指向 + 軽量な索引。今後置換可能に抽象化 |
 | 依存管理 (Python) | **uv**（`pyproject.toml` + `uv.lock` コミット） | ユーザー選択。再現性のあるロック |
 | フロント | React 18 + TypeScript + Vite + **Recharts** | ユーザー選択（グラフは Recharts）。型チェック・ESLint・Prettier・vitest |
@@ -32,6 +32,7 @@ backend/
       assets.default.json  # 4資産の初期マッピング（仮）
     domain/
       assets.py     # 論理資産の型・定義辞書
+      returns.py    # リターン計算・年率換算・頻度リサンプリング（実装済み）
     data/
       provider.py     # PriceProvider Protocol（fetch_history / get_available_history / name）
       repository.py   # Catalog(SQLite索引) / SeriesStore(Parquet) + スナップショットハッシュ
@@ -45,7 +46,7 @@ backend/
     cli.py            # fetch / export-csv サブコマンドの argparse CLI
     __main__.py       # python -m app / -m app.cli 両対応
     optimization/
-      service.py    # スタブ（後続）
+      service.py    # static_allocation 実装済み（rebalance_allocation は未実装）
     backtest/
       engine.py     # スタブ（後続）
     schemas/        # Pydantic モデル（asset / dataseries / series / job）
