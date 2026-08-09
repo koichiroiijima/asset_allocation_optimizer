@@ -55,7 +55,7 @@
 
 - [x] PyPortfolioOpt 最適化サービスと単体テスト（`static_allocation`）
 - [x] 最適化 API ルート配線（`POST /api/optimizations` 同期エンドポイント＋API テスト、`OptimizationRequest` の `start`/`end` でルックアヘッド回避）
-- [ ] 手法・パラメータの選択 UI（最適化画面・GUI。expected return / covariance / 制約 / リスクフリー金利の入力と結果表示）
+- [x] 最適化画面・GUI（手法 / 期待リターン / 共分散 / 期間 / リスクフリー金利 / ウェイト上下限の入力と結果表示）— `POST /api/optimizations` を配線、`frontend/src/pages/OptimizationScreen.tsx` + テスト（`OptimizationScreen.test.tsx` 5件）。capm_return はベンチマーク非対応のため選択肢除外、efficient_return/efficient_risk は目標値を条件表示、クライアント側検証でサーバー422に依存しない
 - [ ] rebalance_allocation（リバランス最適化）の実装
 - [ ] 互換性表・入力範囲・既定値のスキーマ共用
 
@@ -70,7 +70,7 @@
 ## 画面（分析以降）
 
 - [x] 分析画面（価格推移・累積リターン・ローリングボラ・相関ヒートマップ）— `GET /api/data/analysis`（`app/api/routes/analysis.py` / `app/schemas/analysis.py`）を配線、`app/api/route_helpers.py` の `load_price_matrix` で複数資産を外側 union 整列、未取得資産は除外して日本語警告、`frontend/src/hooks/useAnalysis.ts` + `src/api/client.ts` の `getAnalysis` と連携
-- [ ] 最適化画面（手法・期間・制約の入力と結果表示）
+- [x] 最適化画面（手法・期間・制約の入力と結果表示）— `POST /api/optimizations` を配線。対象資産（取得済みのみ・複数選択）・手法・期待リターン（capm_return はベンチマーク非対応のため除外）・共分散・期間・リスクフリー金利・ウェイト上下限・年率換算係数を入力、`efficient_return`/`efficient_risk` では目標値を条件表示。クライアント側検証（資産2件・ウェイト上下限・目標値必須）と結果表（clean_weights・指標・warnings）を実装。`.opt-form` / `.result-table` を使用。テスト `OptimizationScreen.test.tsx`（5件）付き
 - [ ] バックテスト画面
 - [ ] 比較・保存画面（複数結果の比較、JSON / CSV エクスポート）
 
