@@ -194,6 +194,44 @@ export function AnalysisScreen() {
                 );
               })()}
 
+              <h3>リターン・リスク統計（年率）</h3>
+              {analysis.stats.length > 0 ? (
+                <table className="result-table">
+                  <thead>
+                    <tr>
+                      <th>資産</th>
+                      <th>平均リターン</th>
+                      <th>EMA リターン</th>
+                      <th>年率ボラティリティ（リスク）</th>
+                      <th>シャープレシオ</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {analysis.stats.map((s) => {
+                      const fmtPct = (v: number | null) =>
+                        v === null || v === undefined ? '—' : `${(v * 100).toFixed(2)}%`;
+                      const fmtRatio = (v: number | null) =>
+                        v === null || v === undefined ? '—' : v.toFixed(2);
+                      return (
+                        <tr key={s.asset_id}>
+                          <td>{assetLabel(s.asset_id, assets?.assets)}</td>
+                          <td>{fmtPct(s.mean_annual_return)}</td>
+                          <td>{fmtPct(s.ema_annual_return)}</td>
+                          <td>{fmtPct(s.annual_volatility)}</td>
+                          <td>{fmtRatio(s.sharpe_ratio)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="warning-text">表示できるリターン統計がありません。</p>
+              )}
+              <p className="hint-text">
+                平均リターンは観測期間の幾何加重平均、EMA リターンは直近を重視した指数加重平均（500日）の年率値です。
+                リスクフリー金利は 0% としてシャープレシオを計算しています。将来の成果を保証するものではありません。
+              </p>
+
               <h3>累積リターン</h3>
               {(() => {
                 const { rows } = seriesMatrix(analysis.cumulative);

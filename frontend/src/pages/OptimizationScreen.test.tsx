@@ -1,7 +1,14 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import React from 'react';
+import { CompareProvider } from '../compare/CompareContext';
 import { OptimizationScreen } from './OptimizationScreen';
+
+/** CompareProvider で包んで描画する。実行結果の「比較に追加」用。 */
+function renderWithProvider(ui: React.ReactNode) {
+  return render(<CompareProvider>{ui}</CompareProvider>);
+}
 
 const ASSETS_BODY = {
   assets: [
@@ -150,7 +157,7 @@ describe('OptimizationScreen', () => {
 
   it('取得済み資産のみが対象資産の選択肢に表示される', async () => {
     stubFetch();
-    render(<OptimizationScreen />);
+    renderWithProvider(<OptimizationScreen />);
     const assetSelect = await screen.findByRole('listbox', { name: /対象資産/ });
     // 資産セレクト内の option のみを対象にする（手法・期待リターン等の option と混ざらない）
     const assetOptions = Array.from(assetSelect.querySelectorAll('option')).map((o) => o.textContent);
@@ -161,7 +168,7 @@ describe('OptimizationScreen', () => {
   it('対象資産2件を選択して実行すると POST body と結果が正しい', async () => {
     const fetchMock = stubFetch();
     const user = userEvent.setup();
-    render(<OptimizationScreen />);
+    renderWithProvider(<OptimizationScreen />);
     await selectTwoAssetsAndSubmit(user);
 
     // 結果表が表示される
@@ -181,7 +188,7 @@ describe('OptimizationScreen', () => {
   it('efficient_return 選択時のみ target_return が表示される', async () => {
     stubFetch();
     const user = userEvent.setup();
-    render(<OptimizationScreen />);
+    renderWithProvider(<OptimizationScreen />);
     await screen.findByRole('listbox', { name: /対象資産/ });
 
     expect(screen.queryByText('目標リターン（年率）')).not.toBeInTheDocument();
@@ -201,7 +208,7 @@ describe('OptimizationScreen', () => {
       status: 400,
     });
     const user = userEvent.setup();
-    render(<OptimizationScreen />);
+    renderWithProvider(<OptimizationScreen />);
     await selectTwoAssetsAndSubmit(user);
     await screen.findByText(/最適化の実行に失敗しました: データが未取得の資産があるため最適化を実行できません/);
   });
@@ -223,7 +230,7 @@ describe('OptimizationScreen', () => {
         return Promise.resolve(jsonResponse({ detail: 'not found' }, 404));
       }),
     );
-    render(<OptimizationScreen />);
+    renderWithProvider(<OptimizationScreen />);
     await screen.findByText(/取得済みの資産がありません。/);
     expect(screen.queryByRole('button', { name: '最適化を実行' })).not.toBeInTheDocument();
   });

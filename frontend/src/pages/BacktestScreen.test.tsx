@@ -1,7 +1,14 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import React from 'react';
+import { CompareProvider } from '../compare/CompareContext';
 import { BacktestScreen } from './BacktestScreen';
+
+/** CompareProvider で包んで描画する。 */
+function renderWithProvider(ui: React.ReactNode) {
+  return render(<CompareProvider>{ui}</CompareProvider>);
+}
 
 const ASSETS_BODY = {
   assets: [
@@ -192,7 +199,7 @@ describe('BacktestScreen', () => {
 
   it('取得済み資産のみが対象選択肢に表示される', async () => {
     stubFetch();
-    render(<BacktestScreen />);
+    renderWithProvider(<BacktestScreen />);
     await screen.findByRole('checkbox', { name: /米国株式/ });
     expect(screen.getByRole('checkbox', { name: /米国債券/ })).toBeInTheDocument();
     expect(screen.queryByRole('checkbox', { name: /米国を除く株式/ })).not.toBeInTheDocument();
@@ -201,7 +208,7 @@ describe('BacktestScreen', () => {
   it('実行すると POST body と結果が正しい', async () => {
     const fetchMock = stubFetch();
     const user = userEvent.setup();
-    render(<BacktestScreen />);
+    renderWithProvider(<BacktestScreen />);
     await selectTwoAssetsAndSubmit(user);
 
     // 結果表示
@@ -222,7 +229,7 @@ describe('BacktestScreen', () => {
   it('ウェイト合計が 1 でないとエラー（fetch しない）', async () => {
     const fetchMock = stubFetch();
     const user = userEvent.setup();
-    render(<BacktestScreen />);
+    renderWithProvider(<BacktestScreen />);
     await screen.findByRole('checkbox', { name: /米国株式/ });
     await user.click(screen.getByRole('checkbox', { name: /米国株式/ }));
     await user.click(screen.getByRole('checkbox', { name: /米国債券/ }));
@@ -245,7 +252,7 @@ describe('BacktestScreen', () => {
   it('バックエンドが400（日本語 detail）を返すとエラー表示', async () => {
     stubFetch({ body: { detail: 'データが未取得の資産があるためバックテストを実行できません: ex_us_equity' }, status: 400 });
     const user = userEvent.setup();
-    render(<BacktestScreen />);
+    renderWithProvider(<BacktestScreen />);
     await selectTwoAssetsAndSubmit(user);
     await screen.findByText(/バックテストの実行に失敗しました: データが未取得の資産/);
   });
@@ -263,7 +270,7 @@ describe('BacktestScreen', () => {
         return Promise.resolve(jsonResponse({ detail: 'not found' }, 404));
       }),
     );
-    render(<BacktestScreen />);
+    renderWithProvider(<BacktestScreen />);
     await screen.findByText(/取得済みの資産がありません。/);
     expect(screen.queryByRole('button', { name: 'バックテストを実行' })).not.toBeInTheDocument();
   });

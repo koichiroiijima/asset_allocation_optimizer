@@ -10,6 +10,8 @@ import {
   YAxis,
 } from 'recharts';
 import { api } from '../api';
+import { useCompare } from '../compare/CompareContext';
+import { makeResultId, type StoredResult } from '../compare/types';
 import { useAssets } from '../hooks/useAssets';
 import type {
   Asset,
@@ -101,6 +103,12 @@ function friendlyError(err: unknown): string {
   return message;
 }
 
+/** 実行日時をローカル表記で返す（例: 2026-08-09 10:30）。 */
+function formatExecutedAt(d = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function assetLabel(assetId: string, assets: Asset[] | undefined): string {
   const asset = assets?.find((a) => a.logical_asset === assetId);
   return asset ? `${asset.display_name}（${asset.default_ticker}）` : assetId;
@@ -135,8 +143,10 @@ export function BacktestScreen() {
   const [result, setResult] = useState<BacktestResponse | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [added, setAdded] = useState(false);
 
   const { assets, error: assetsError, loading: assetsLoading, refresh } = useAssets();
+  const { addResult } = useCompare();
 
   const availableAssets = useMemo(
     () =>
@@ -334,6 +344,27 @@ export function BacktestScreen() {
           {result && (
             <>
               <h3>バックテスト結果</h3>
+              <div className="compare-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    addResult({
+                      id: makeResultId(),
+                      kind: 'backtest',
+                      label: `バックテスト（${result.params.rebalance_frequency} / ${result.params.initial_capital}） ${formatExecutedAt()}`,
+                      executedAt: new Date().toISOString(),
+                      periodStart: form.start || undefined,
+                      periodEnd: form.end || undefined,
+                      result,
+                    } satisfies StoredResult);
+                    setAdded(true);
+                    window.setTimeout(() => setAdded(false), 2000);
+                  }}
+                >
+                  比較に追加
+                </button>
+                {added && <span className="hint-text">追加しました</span>}
+              </div>
               {(result.warnings ?? []).map((w, i) => (
                 <p key={i} className="warning-text">
                   {w}

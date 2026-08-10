@@ -8,6 +8,7 @@ processed Parquet から複数資産の価格推移・累積リターン・ロ�
 
 from __future__ import annotations
 
+import math
 from typing import Annotated
 
 import pandas as pd
@@ -21,10 +22,17 @@ from app.domain.returns import (
     correlation_matrix,
     cumulative_return,
     resample_prices,
+    return_stats,
     rolling_volatility,
     simple_return,
 )
-from app.schemas.analysis import AnalysisRequest, AnalysisResponse, AssetSeries, CorrelationMatrix
+from app.schemas.analysis import (
+    AnalysisRequest,
+    AnalysisResponse,
+    AssetSeries,
+    AssetStats,
+    CorrelationMatrix,
+)
 from app.schemas.series import SeriesPoint
 
 router = APIRouter(tags=["data"])
@@ -39,6 +47,37 @@ def _to_points(series: pd.Series) -> list[SeriesPoint]:
         SeriesPoint(date=d.date(), value=float(v))
         for d, v in zip(clean.index, clean.values, strict=True)
     ]
+
+
+def _to_stats(returns: pd.DataFrame, settings: Settings) -> list[AssetStats]:
+    """各資産のリターン統計（平均/EMA リターン・年率ボラ・シャープ）を返す。
+
+    欠損のない系列に対して `return_stats` を適用し、観測不足は None（推測補完しない）。
+    リスクフリー金利は既定 0.0（設定に未定義のため。UI に明示する）。
+    """
+    stats: list[AssetStats] = []
+    for asset_id in returns.columns:
+        series = returns[asset_id]
+        values = return_stats(
+            series,
+            settings.annualization_factor,
+            risk_free_rate=0.0,
+        )
+        stats.append(
+            AssetStats(
+                asset_id=asset_id,
+                mean_annual_return=_maybe_float(values["mean_annual_return"]),
+                ema_annual_return=_maybe_float(values["ema_annual_return"]),
+                annual_volatility=_maybe_float(values["annual_volatility"]),
+                sharpe_ratio=_maybe_float(values["sharpe_ratio"]),
+            )
+        )
+    return stats
+
+
+def _maybe_float(value: float) -> float | None:
+    """非有限値（NaN/±inf）は None にし、それ以外は float のまま返す。"""
+    return None if math.isnan(value) or math.isinf(value) else float(value)
 
 
 def _correlation_matrix_or_none(matrix: pd.DataFrame) -> CorrelationMatrix:
@@ -85,6 +124,7 @@ def get_analysis(
             assets_used=[],
             window=request.window,
             correlation=CorrelationMatrix(),
+            stats=[],
             warnings=warnings,
         )
 
@@ -120,6 +160,7 @@ def get_analysis(
             AssetSeries(asset_id=a, points=_to_points(vol[a])) for a in used_assets
         ],
         correlation=corr,
+        stats=_to_stats(returns, settings),
         warnings=warnings,
     )
 

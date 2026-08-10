@@ -213,3 +213,66 @@ th {
 .corr-header-row th {
   background: #eef1f5;
 }
+
+/* 比較・保存画面 */
+
+.compare-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+}
+
+.compare-actions button,
+.compare-toolbar button {
+  font: inherit;
+  padding: 0.4rem 1rem;
+  border: 1px solid #c9cfd8;
+  border-radius: 4px;
+  background: #fff;
+  color: #1f2430;
+  cursor: pointer;
+}
+
+.compare-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+  flex-wrap: wrap;
+}
+
+.compare-scroll {
+  overflow-x: auto;
+  margin: 0.75rem 0;
+}
+
+.compare-scroll table {
+  min-width: 56rem;
+  white-space: nowrap;
+}
+
+.compare-scroll th,
+.compare-scroll td {
+  text-align: right;
+  padding: 0.4rem 0.6rem;
+}
+
+.compare-scroll th:first-child,
+.compare-scroll td:first-child {
+  text-align: left;
+  white-space: normal;
+  min-width: 12rem;
+}
+
+.compare-scroll th.row-header,
+.compare-scroll td.row-header {
+  text-align: left;
+  white-space: normal;
+  min-width: 12rem;
+}
+
+.better-cell {
+  background: #e8f4ec;
+  font-weight: 600;
+}

@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
 import { api } from '../api';
+import { useCompare } from '../compare/CompareContext';
+import { makeResultId, type StoredResult } from '../compare/types';
 import { useAssets } from '../hooks/useAssets';
 import type {
   Asset,
@@ -30,6 +32,21 @@ const COVARIANCE_OPTIONS: { value: CovarianceMethod; label: string }[] = [
   { value: 'semicovariance', label: 'セミコバリアンス' },
   { value: 'ledoit_wolf', label: 'Ledoit-Wolf 収縮' },
 ];
+
+/** 期待リターン方式の日本語ラベル。 */
+const EXPECTED_RETURN_LABELS: Record<ExpectedReturnMethod, string> = {
+  mean_historical_return: '平均リターン',
+  capm_return: 'CAPM リターン',
+  ema_historical_return: 'EMA リターン',
+};
+
+/** 最適化手法の日本語ラベル。 */
+const METHOD_LABELS: Record<OptimizationMethod, string> = {
+  max_sharpe: '最大シャープレシオ',
+  min_volatility: '最小ボラティリティ',
+  efficient_risk: '目標ボラティリティ（efficient_risk）',
+  efficient_return: '目標リターン（efficient_return）',
+};
 
 /**
  * フォームの入力状態。数値系はキャレット位置・空欄入力を許容するため文字列で保持し、
@@ -135,6 +152,12 @@ function assetLabel(assetId: string, assets: Asset[] | undefined): string {
   return asset ? `${asset.display_name}（${asset.default_ticker}）` : assetId;
 }
 
+/** 実行日時をローカル表記で返す（例: 2026-08-09 10:30）。 */
+function formatExecutedAt(d = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 /** 最適化画面（手法・期間・制約の入力と結果表示）。 */
 export function OptimizationScreen() {
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
@@ -142,8 +165,10 @@ export function OptimizationScreen() {
   const [result, setResult] = useState<OptimizationResponse | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [added, setAdded] = useState(false);
 
   const { assets, error: assetsError, loading: assetsLoading, refresh } = useAssets();
+  const { addResult } = useCompare();
 
   // 取得済み資産のみを対象にする（分析画面と同様の絞り込み）。
   const availableAssets = useMemo(
@@ -293,15 +318,22 @@ export function OptimizationScreen() {
             </label>
 
             {form.method === 'efficient_return' && (
-              <label>
-                <span>目標リターン（年率）</span>
-                <input
-                  type="number"
-                  step="0.001"
-                  value={form.targetReturn}
-                  onChange={(e) => update('targetReturn', e.target.value)}
-                />
-              </label>
+              <>
+                <label>
+                  <span>目標リターン（年率）</span>
+                  <input
+                    type="number"
+                    step="0.001"
+                    value={form.targetReturn}
+                    onChange={(e) => update('targetReturn', e.target.value)}
+                  />
+                </label>
+                <span className="hint-text">
+                  目標リターンは、最適化に使う「{EXPECTED_RETURN_LABELS[form.expectedReturnMethod]}」で
+                  期待リターンが最も高い資産の値（効率フロンティアの上限）を超えるとエラーになります。
+                  限界値ちょうどでは最高リターン資産に集中し、わずかに下回ると複数資産に分散されます。
+                </span>
+              </>
             )}
 
             {form.method === 'efficient_risk' && (
@@ -363,6 +395,27 @@ export function OptimizationScreen() {
           {result && (
             <>
               <h3>最適配分の結果</h3>
+              <div className="compare-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    addResult({
+                      id: makeResultId(),
+                      kind: 'optimization',
+                      label: `最適化（${result.params.optimization_method} / ${result.params.expected_return_method}） ${formatExecutedAt()}`,
+                      executedAt: new Date().toISOString(),
+                      periodStart: form.start || undefined,
+                      periodEnd: form.end || undefined,
+                      result,
+                    } satisfies StoredResult);
+                    setAdded(true);
+                    window.setTimeout(() => setAdded(false), 2000);
+                  }}
+                >
+                  比較に追加
+                </button>
+                {added && <span className="hint-text">追加しました</span>}
+              </div>
               {(result.warnings ?? []).map((w, i) => (
                 <p key={i} className="warning-text">
                   {w}
@@ -397,8 +450,12 @@ export function OptimizationScreen() {
               <table className="result-table">
                 <tbody>
                   <tr>
-                    <td>期待リターン</td>
+                    <td>期待リターン（{EXPECTED_RETURN_LABELS[result.params.expected_return_method]}）</td>
                     <td>{result.metrics.expected_annual_return.toFixed(4)}</td>
+                  </tr>
+                  <tr>
+                    <td>手法</td>
+                    <td>{METHOD_LABELS[result.params.optimization_method]}</td>
                   </tr>
                   <tr>
                     <td>ボラティリティ</td>

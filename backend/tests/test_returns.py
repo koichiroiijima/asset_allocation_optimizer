@@ -16,10 +16,13 @@ from app.domain.returns import (
     annualize_volatility,
     correlation_matrix,
     cumulative_return,
+    ema_annual_return,
     log_return,
     resample_prices,
     resample_returns,
+    return_stats,
     rolling_volatility,
+    sharpe_ratio,
     simple_return,
 )
 
@@ -325,3 +328,63 @@ def test_correlation_matrix_empty_no_exception() -> None:
     out = correlation_matrix(empty)
     assert out.empty
     assert out.index.tolist() == []
+
+
+def test_ema_annual_return_known_constant_series() -> None:
+    """一定リターンの EMA 年率: ema_avg = 0.001 → (1.001)^252 - 1。"""
+    returns = pd.Series([0.001, 0.001, 0.001, 0.001, 0.001])
+    out = ema_annual_return(returns, annualization_factor=252, span=2)
+    assert out == pytest.approx((1.001) ** 252 - 1.0, rel=1e-6)
+
+
+def test_ema_annual_return_arithmetic_differs() -> None:
+    """算術（compounding=False）は幾何と異なる（avg × factor）。"""
+    returns = pd.Series([0.001, 0.001, 0.001])
+    geom = ema_annual_return(returns, annualization_factor=252, span=2)
+    arith = ema_annual_return(returns, annualization_factor=252, span=2, compounding=False)
+    assert arith == pytest.approx(0.001 * 252, rel=1e-9)
+    assert geom != pytest.approx(arith)
+
+
+def test_ema_annual_return_empty_is_nan() -> None:
+    """空系列（全 NaN）は NaN を返す（推測補完しない）。"""
+    returns = pd.Series([float("nan"), float("nan")])
+    assert np.isnan(ema_annual_return(returns, annualization_factor=252))
+
+
+def test_sharpe_ratio_known_value() -> None:
+    """シャープレシオ: (年率リターン - rf) / 年率ボラ。"""
+    returns = pd.Series([0.01, 0.02, -0.005, 0.011])
+    annual_return = annualize_return(returns, method="geometric")
+    vol = annualize_volatility(returns)
+    assert sharpe_ratio(returns, risk_free_rate=0.0) == pytest.approx(annual_return / vol)
+    # リスクフリー金利が正だとシャープは下がる
+    assert sharpe_ratio(returns, risk_free_rate=0.01) < sharpe_ratio(returns, risk_free_rate=0.0)
+
+
+def test_sharpe_ratio_insufficient_data_is_nan() -> None:
+    """観測1点（リターン1つ）はボラが取れず NaN。"""
+    returns = pd.Series([0.01])
+    assert np.isnan(sharpe_ratio(returns))
+
+
+def test_return_stats_contains_expected_keys() -> None:
+    """return_stats は平均/EMA リターン・年率ボラ・シャープを返す。"""
+    returns = pd.Series([0.01, 0.02, -0.005, 0.011, 0.015])
+    stats = return_stats(returns, annualization_factor=252, ema_span=2)
+    assert set(stats.keys()) == {
+        "mean_annual_return",
+        "ema_annual_return",
+        "annual_volatility",
+        "sharpe_ratio",
+    }
+    assert stats["mean_annual_return"] == pytest.approx(
+        annualize_return(returns, method="geometric")
+    )
+    assert stats["ema_annual_return"] == pytest.approx(
+        ema_annual_return(returns, annualization_factor=252, span=2)
+    )
+    assert stats["annual_volatility"] == pytest.approx(annualize_volatility(returns))
+    assert stats["sharpe_ratio"] == pytest.approx(
+        sharpe_ratio(returns, risk_free_rate=0.0)
+    )

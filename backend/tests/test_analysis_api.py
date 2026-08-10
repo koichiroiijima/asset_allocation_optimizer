@@ -93,6 +93,15 @@ def test_analysis_returns_assets_and_points(client: TestClient, tmp_settings: Se
     for asset in body["rolling_volatility"]:
         assert asset["points"] == []
 
+    # 統計: 4点の価格から3点のリターンが取れ、平均/EMA リターン・ボラ・シャープが返る
+    stats = body["stats"]
+    assert [s["asset_id"] for s in stats] == ["us_equity", "us_bond"]
+    for s in stats:
+        assert s["mean_annual_return"] is not None
+        assert s["ema_annual_return"] is not None
+        assert s["annual_volatility"] is not None
+        assert s["sharpe_ratio"] is not None
+
 
 def test_analysis_correlation_two_assets(client: TestClient, tmp_settings: Settings) -> None:
     """2資産なら相関行列は 2x2・対称・対角 1.0。"""

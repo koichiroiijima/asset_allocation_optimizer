@@ -9,6 +9,7 @@ export type {
   AssetDataStatus,
   AssetListResponse,
   AssetSeries,
+  AssetStats,
   BacktestMetrics,
   BacktestRequest,
   BacktestResponse,

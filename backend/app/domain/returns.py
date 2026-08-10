@@ -124,6 +124,81 @@ def annualize_volatility(
     return float(clean.std(ddof=1) * math.sqrt(float(annualization_factor)))
 
 
+def ema_annual_return(
+    returns: pd.Series,
+    annualization_factor: int = 252,
+    *,
+    span: int = 500,
+    compounding: bool = True,
+) -> float:
+    """リターン系列の指数加重平均（EMA）を年率換算した値を返す。
+
+    PyPortfolioOpt の `expected_returns.ema_historical_return` と同一の
+    定義を使い、分析画面の「EMA リターン」表示に供する（最適化画面の
+    `ema_historical_return` と整合）。直近への重みが大きい EMA の最終値を
+    - `compounding=True`: `(1 + ema_avg) ** factor - 1`（幾何）
+    - `compounding=False`: `ema_avg * factor`（算術）
+    で年率化する。空・全 NaN は `float("nan")` を返す（推測補完しない）。
+    """
+    clean = returns.dropna()
+    if clean.size == 0:
+        return float("nan")
+    avg = float(clean.ewm(span=span).mean().iloc[-1])
+    if compounding:
+        return float((1.0 + avg) ** annualization_factor - 1.0)
+    return float(avg * annualization_factor)
+
+
+def sharpe_ratio(
+    returns: pd.Series,
+    annualization_factor: int = 252,
+    *,
+    risk_free_rate: float = 0.0,
+) -> float:
+    """リターン系列の年率換算シャープレシオを返す。
+
+    `(年率リターン - リスクフリー金利) / 年率ボラ`。年率リターンは幾何加重
+    （`annualize_return` の geometric）、ボラは `annualize_volatility`。
+    リターンが取れない（2点未満）場合は `float("nan")` を返す。
+    リスクフリー金利は年率の小数（例 0.02 = 2%）。
+    """
+    vol = annualize_volatility(returns, annualization_factor)
+    if not np.isfinite(vol) or vol <= 0:
+        return float("nan")
+    ar = annualize_return(returns, annualization_factor, method="geometric")
+    if not np.isfinite(ar):
+        return float("nan")
+    return float((ar - risk_free_rate) / vol)
+
+
+def return_stats(
+    returns: pd.Series,
+    annualization_factor: int = 252,
+    *,
+    risk_free_rate: float = 0.0,
+    ema_span: int = 500,
+) -> dict[str, float]:
+    """単一資産のリターン統計をまとめる（分析画面の統計表用）。
+
+    - `mean_annual_return`: 平均（幾何）年率リターン。`annualize_return`。
+    - `ema_annual_return`: 指数加重平均（EMA）の年率リターン。直近を重視。
+    - `annual_volatility`: 年率ボラティリティ（リスク）。`annualize_volatility`。
+    - `sharpe_ratio`: 年率シャープレシオ（リスクフリー金利引き後）。
+
+    いずれも観測不足・全 NaN の場合は `float("nan")` を返し、欠損は補完しない。
+    """
+    return {
+        "mean_annual_return": annualize_return(returns, annualization_factor, method="geometric"),
+        "ema_annual_return": ema_annual_return(
+            returns, annualization_factor, span=ema_span
+        ),
+        "annual_volatility": annualize_volatility(returns, annualization_factor),
+        "sharpe_ratio": sharpe_ratio(
+            returns, annualization_factor, risk_free_rate=risk_free_rate
+        ),
+    }
+
+
 def rolling_volatility(
     returns: pd.Series,
     window: int,

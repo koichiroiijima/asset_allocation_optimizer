@@ -85,7 +85,7 @@ docs/design.md      # 本メモ
 ### 3.2 フロントエンド
 
 - **API型と画面状態を分離**: `src/api/types.ts` にサーバー契約の型を定義し、`client.ts` の fetch ラッパーを介す。画面は型付きのクライアントのみを使う。
-- **画面は5つ**: データ / 分析 / 最適化 / バックテスト / 比較・保存。データ画面（資産一覧＋系列グラフ）・**分析画面**（`useAnalysis` フック＋`getAnalysis`）・**最適化画面**（`OptimizationScreen.tsx`＋`optimize`）・**バックテスト画面**（`BacktestScreen.tsx`＋`runBacktest`）は実装済み。比較・保存はプレースホルダー。
+- **画面は5つ**: データ / 分析 / 最適化 / バックテスト / 比較・保存。データ画面（資産一覧＋系列グラフ）・**分析画面**（`useAnalysis` フック＋`getAnalysis`）・**最適化画面**（`OptimizationScreen.tsx`＋`optimize`）・**バックテスト画面**（`BacktestScreen.tsx`＋`runBacktest`）は実装済み。比較・保存画面（`CompareScreen.tsx`・`compare/CompareContext.tsx`）は実装済み（実行結果をグローバル保持・JSON/CSV エクスポート）。
 - **状態管理**: 現段階は React 標準の state + カスタムフック（`useHealth` / `useAssets` / `useSeries` / `useAnalysis`）。必要になった段階で検討。
 
 ## 4. 設定モデル（`config/settings.py`）
@@ -292,7 +292,7 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
 2. **分析**（実装済み）: 価格推移・累積リターン・ローリングボラティリティ・相関ヒートマップ（frequency D/W/M 切り替え、取得済み資産のみ対象）
 3. **最適化**（実装済み）: 手法・期待リターン・共分散・期間・制約・リスクフリー金利 → ウェイト・期待利得・リスク・Sharpe（`POST /api/optimizations` 配線）
 4. **バックテスト**（実装済み）: 対象資産・固定ウェイト・リバランス頻度・初期資金・コスト率 → 累積資産・ドローダウン・年次成績・配分推移・取引一覧（`POST /api/backtests` 配線）
-5. **比較・保存**（プレースホルダー）: 実行結果の比較、JSON/CSV エクスポート
+5. **比較・保存**（実装済み）: 最適化・バックテストの実行結果を「比較に追加」でグローバル保持（`CompareContext`、最大50件・メモリ保持）し、比較画面で種別ごとの指標比較（最良値強調・null は「—」）・ラベル編集・削除と、JSON（実行結果一式）/ CSV（指標比較表）エクスポートができる
 
 各画面で、使用したデータスナップショット・通貨方針・シグナル日/約定日規則・警告を結果の近くに表示する。
 
@@ -327,3 +327,6 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
 - **2026-08-09** — 分析 API（`GET /api/data/analysis`）と最適化 API（`POST /api/optimizations`）を実装。`app/domain/returns.py` に `rolling_volatility`（移動年率ボラ）と `correlation_matrix`（ピアソン相関）を追加。`app/api/route_helpers.py` に `load_price_matrix`（複数資産の価格行列を外側 union で整列・未取得を警告化）を新設し、両ルートで共用。スキーマは `app/schemas/analysis.py` / `app/schemas/optimization.py`（`OptimizationRequest`）。フロントエンドは `useAnalysis` フックと分析画面（価格・累積・ローリングボラの折れ線＋相関ヒートマップ、frequency 切り替え、取得済み資産のみ）を実装。最適化は同期エンドポイントとして配線（`start`/`end` でルックアヘッド回避）、エラーは 400＋日本語。テスト `tests/test_analysis_api.py`（8件）・`tests/test_optimizations_api.py`（9件）。**最適化画面（GUI）・rebalance_allocation・バックテスト・data_fetch 配線は引き続き未実装**。
 - **2026-08-09** — バックテスト（固定ウェイト）を実装（ユーザー決定: リバランス配分は固定ウェイトのみ・エンジン+API+画面を一気通貫）。`app/backtest/engine.py` の `run_backtest(prices, params, *, currency)` を実装し、`BacktestInputError`（日本語・origin 保持）でエラーを表現。**ルックアヘッド回避は「約定日=シグナル日の翌観測日」の構造で保証**し、バイアス検知テストで検証。評価指標（累積/年率リターン・ボラ・Sharpe/Sortino/Calmar・最大DD・勝率・回転率・手数料）は未定義を `null`（`float | None`）で返す。`app/schemas/backtest.py`（`BacktestParams`/`BacktestRequest`/`BacktestMetrics`/`EquityPoint` 等）と `POST /api/backtests`（`app/api/routes/backtests.py`）を新設。GUI は `BacktestScreen.tsx`（資産・固定ウェイト・リバランス頻度・初期資金・コスト入力と、累積資産/ドローワウン/配分推移の折れ線・指標表・年次成績・取引一覧・免責表示）。テスト: `test_backtest.py`（16件・バイアス検知含む）・`test_backtests_api.py`（8件）・`BacktestScreen.test.tsx`（5件）。「実行結果の再現可能な保存」は params echo で手動再現可能だが永続化（スナップショット・コードバージョン）は未 Scope、runs/jobs 配線も未実施。
 
+- **2026-08-10** — 比較・保存画面を実装（ユーザー決定: 保存は「フロント保持+エクスポート」。バックエンド runs 永続化はスコープ外）。`frontend/src/compare/`（`types.ts`・`CompareContext.tsx`・`export.ts`・`indicators.ts`）と `CompareScreen.tsx` を新設し、`App.tsx` の画面全体を `CompareProvider` で包んで実行結果をグローバル保持（最大50件・メモリ保持・ページ再読込で消失）。最適化・バックテスト画面に「比較に追加」ボタンを追加。比較画面は種別ごとに指標比較表（最良値を強調表示、`null` は「—」）、ラベル編集・削除、JSON（実行結果一式）/ CSV（指標比較表・横持ち）エクスポート（Blob ダウンロード）を実装。免責文（保存はブラウザ内のみ・将来の成果を保証しない）を UI に併記。テスト `CompareScreen.test.tsx`（6件）＋既存 `OptimizationScreen`/`BacktestScreen`/`App` テストを Provider 込みに更新（全25件 green）。
+- **2026-08-10** — リターン/リスク表示と `efficient_return` の限界調査。`app/domain/returns.py` に `ema_annual_return`・`sharpe_ratio`・`return_stats` を追加し、`GET /api/data/analysis` の `stats` フィールド（`AssetStats`）として資産ごとの平均/EMA 年率リターン・年率ボラ・シャープを返すようにした（リスクフリー金利は既定 0.0・UI に明示）。分析画面に統計表を追加。最適化画面は選択中リターン方式（平均/EMA）を日本語ラベルで明示し、`efficient_return` の限界値についてヒントを追加。
+- **`efficient_return` の限界挙動（調査結論）**: PyPortfolioOpt の `efficient_return` は min-vol を目的関数とし、`ret >= target_return` の**不等式制約**で解く。上限判定 `_max_return_value` は「weight_bounds 内で単一資産に全振りしたときの最大期待リターン」で、これを超えると `ValueError`（日本語 400 に変換）。対象が単一資産 100% になるのは目標リターンが `_max_return_value` に**等しい場合のみ**で、わずかに下回ると min-vol 目的のため分散的に複数資産へ逃げる。実データ（EMA）では `ex_us_equity`（VXUS）の EMA 期待リターン ≈ 0.2559 が最大で、0.255 では VXUS/VTI に分散する（これが観察された挙動）。これはエンジンの正しい限界であり、回避策として限界値を UI に明示した（将来は上限バリデーションや上限値の事前表示を検討）。

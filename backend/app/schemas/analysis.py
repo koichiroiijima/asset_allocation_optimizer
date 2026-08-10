@@ -43,6 +43,20 @@ class CorrelationMatrix(BaseModel):
     matrix: list[list[float | None]] = Field(default_factory=list)
 
 
+class AssetStats(BaseModel):
+    """単一資産のリターン統計（分析画面の統計表用）。
+
+    値は欠損を補完せず、観測不足・全 NaN は `null` で返す（金融データの推測補完を
+    禁止する CLAUDE.md 方針と一致）。
+    """
+
+    asset_id: str
+    mean_annual_return: float | None = None
+    ema_annual_return: float | None = None
+    annual_volatility: float | None = None
+    sharpe_ratio: float | None = None
+
+
 class AnalysisResponse(BaseModel):
     """分析画面が 1 リクエストで表示するデータ一式。"""
 
@@ -53,6 +67,7 @@ class AnalysisResponse(BaseModel):
     cumulative: list[AssetSeries] = Field(default_factory=list)
     rolling_volatility: list[AssetSeries] = Field(default_factory=list)
     correlation: CorrelationMatrix
+    stats: list[AssetStats] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -60,6 +75,7 @@ __all__ = [
     "AnalysisRequest",
     "AnalysisResponse",
     "AssetSeries",
+    "AssetStats",
     "CorrelationMatrix",
     "SeriesPoint",
 ]

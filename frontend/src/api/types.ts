@@ -97,6 +97,15 @@ export interface CorrelationMatrixResponse {
   matrix: (number | null)[][];
 }
 
+/** 単一資産のリターン統計（分析画面の統計表用）。未定義は null。 */
+export interface AssetStats {
+  asset_id: string;
+  mean_annual_return: number | null;
+  ema_annual_return: number | null;
+  annual_volatility: number | null;
+  sharpe_ratio: number | null;
+}
+
 export interface AnalysisResponse {
   currency: string;
   assets_used: string[];
@@ -105,6 +114,7 @@ export interface AnalysisResponse {
   cumulative: AssetSeries[];
   rolling_volatility: AssetSeries[];
   correlation: CorrelationMatrixResponse;
+  stats: AssetStats[];
   warnings: string[];
 }
 

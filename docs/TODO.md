@@ -43,6 +43,7 @@
 - [x] `resample_prices`（価格系列の D/W/M 集約、リターン系は `resample_returns` で複利合成）
 - [x] ローリングボラティリティ（`rolling_volatility`、移動年率ボラ・窓 2 以上を検証）
 - [x] 相関行列（`correlation_matrix`、ピアソン相関・ペアごとに観測で NaN 除外）
+- [x] リターン統計（`return_stats`・`ema_annual_return`・`sharpe_ratio`。平均/EMA 年率リターン・年率ボラ・シャープ。分析 API の `stats` に配線）
 
 ## データ確認 GUI（第1弾）
 
@@ -85,10 +86,10 @@
 
 ## 画面（分析以降）
 
-- [x] 分析画面（価格推移・累積リターン・ローリングボラ・相関ヒートマップ）— `GET /api/data/analysis`（`app/api/routes/analysis.py` / `app/schemas/analysis.py`）を配線、`app/api/route_helpers.py` の `load_price_matrix` で複数資産を外側 union 整列、未取得資産は除外して日本語警告、`frontend/src/hooks/useAnalysis.ts` + `src/api/client.ts` の `getAnalysis` と連携
+- [x] 分析画面（価格推移・累積リターン・ローリングボラ・相関ヒートマップ・リターン/リスク統計表）— `GET /api/data/analysis`（`app/api/routes/analysis.py` / `app/schemas/analysis.py`）を配線、`app/api/route_helpers.py` の `load_price_matrix` で複数資産を外側 union 整列、未取得資産は除外して日本語警告、`frontend/src/hooks/useAnalysis.ts` + `src/api/client.ts` の `getAnalysis` と連携。リターン/リスク統計表（平均リターン・EMA リターン・年率ボラ・シャープ、`analysis.stats`）を追加
 - [x] 最適化画面（手法・期間・制約の入力と結果表示）— `POST /api/optimizations` を配線。対象資産（取得済みのみ・複数選択）・手法・期待リターン（capm_return はベンチマーク非対応のため除外）・共分散・期間・リスクフリー金利・ウェイト上下限・年率換算係数を入力、`efficient_return`/`efficient_risk` では目標値を条件表示。クライアント側検証（資産2件・ウェイト上下限・目標値必須）と結果表（clean_weights・指標・warnings）を実装。`.opt-form` / `.result-table` を使用。テスト `OptimizationScreen.test.tsx`（5件）付き
 - [x] バックテスト画面（固定ウェイト・リバランス頻度・初期資金・コスト入力、累積資産/ドローワウン/配分推移の折れ線・評価指標・年次成績・取引一覧・免責表示）— `POST /api/backtests` を配線、`BacktestScreen.tsx` + テスト（`BacktestScreen.test.tsx` 5件）
-- [ ] 比較・保存画面（複数結果の比較、JSON / CSV エクスポート）
+- [x] 比較・保存画面（複数結果の比較、JSON / CSV エクスポート）— `CompareScreen.tsx`・`compare/CompareContext.tsx`（最適化・バックテスト結果を「比較に追加」でグローバル保持、最大50件・メモリ保持）。種別ごとの指標比較（最良値強調・nullは「—」）、ラベル編集・削除、JSON / CSV エクスポート（Blob ダウンロード）。テスト `CompareScreen.test.tsx`（6件）
 
 ## 仕上げ
 
