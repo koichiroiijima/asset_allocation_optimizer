@@ -31,7 +31,7 @@
 
 実装済み（進捗詳細は [`docs/TODO.md`](docs/TODO.md)）：
 
-- **データ取得**: Yahoo Finance chart API（query2）→ `app.cli fetch` / `export-csv` パイプライン（raw / processed Parquet、スナップショットハッシュ、SQLite fetch_history）。4資産は VTI / BND / VXUS / BNDX。日次取得（`period1`/`period2` 明示で Yahoo の月足ダウンサンプリングを回避）。
+- **データ取得**: Yahoo Finance chart API（query2）→ `app.cli fetch` / `export-csv` パイプライン（raw / processed Parquet、スナップショットハッシュ、SQLite fetch_history）。4資産は VTI / AGG / VXUS / IAGG。日次取得（`period1`/`period2` 明示で Yahoo の月足ダウンサンプリングを回避）。IAGG は2015年設立のため履歴は BNDX より短い（2015-11〜）。
 - **リターン計算**: `app/domain/returns.py`（単純／対数／累積リターン・年率換算・頻度リサンプリング・`rolling_volatility`・`correlation_matrix`）。欠損は補完しない。
 - **GUI**: データ画面（系列グラフ）・分析画面（価格推移・累積リターン・ローリングボラ・相関ヒートマップ）・最適化画面（手法・期間・制約入力と結果表示）・バックテスト画面（固定ウェイトリバランス・累積資産/ドローワウン/配分推移・指標・取引一覧）を実装。
 - **最適化**: `app/optimization/service.py` の `static_allocation`（PyPortfolioOpt）＋ `POST /api/optimizations`（同期・`start`/`end` でルックアヘッド回避）。

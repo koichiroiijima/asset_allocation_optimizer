@@ -28,7 +28,7 @@
 - [x] fetch → raw → normalize → processed → export-csv パイプライン
 - [x] raw / processed の分離、raw スナップショットハッシュ連携
 - [x] SQLite の fetch_history 記録・資産単位の失敗隔離
-- [x] 4資産の既定ティッカー取得確認（VTI / BND / VXUS / BNDX、USD）
+- [x] 4資産の既定ティッカー取得確認（VTI / AGG / VXUS / IAGG、USD）
 - [ ] `price_max_staleness_days`（陳腐化更新の警告・取引停止）— 設定値のみ定義、適用は未実装
 - [ ] `/api/jobs` からの data_fetch 配線（GUI/API からの取得は未接続、CLI のみ）
 - [ ] レート制限対応・取得失敗時の再試行・データ品質警告

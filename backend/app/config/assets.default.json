@@ -16,7 +16,7 @@
   {
     "logical_asset": "us_bond",
     "display_name": "米国債券",
-    "default_ticker": "BND",
+    "default_ticker": "AGG",
     "underlying": "Bloomberg U.S. Aggregate Bond Index",
     "asset_class": "bond",
     "currency": "USD",
@@ -25,7 +25,7 @@
     "fx_hedged": false,
     "dividend_policy": "reinvest",
     "history_start": null,
-    "note": "仮ティッカー。総合債券指数に連動。信用リスク・デュレーションは要確認"
+    "note": "iShares Core U.S. Aggregate Bond ETF。総合債券指数（AGG）に連動"
   },
   {
     "logical_asset": "ex_us_equity",
@@ -44,7 +44,7 @@
   {
     "logical_asset": "ex_us_bond",
     "display_name": "米国を除く債券",
-    "default_ticker": "BNDX",
+    "default_ticker": "IAGG",
     "underlying": "Bloomberg Global Aggregate ex-USD Index",
     "asset_class": "bond",
     "currency": "USD",
@@ -53,6 +53,6 @@
     "fx_hedged": false,
     "dividend_policy": "reinvest",
     "history_start": null,
-    "note": "仮ティッカー。米ドル建て・為替ヘッジなしの国際債券ETF。対象指数と為替方針は要確認"
+    "note": "iShares Core International Aggregate Bond ETF。米ドル建て・為替ヘッジなしの国際債券ETF。IAGG は2015年設立のため履歴は BNDX より短い"
   }
 ]

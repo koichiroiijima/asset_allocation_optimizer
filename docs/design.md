@@ -308,8 +308,8 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
 | 事項 | 現在の状態 | 確定までの作業 |
 | --- | --- | --- |
 | 実データソース/プロバイダー | **Yahoo Finance chart API（query2）採用** | 取得間隔・非商用利用の遵守。代替プロバイダー追加はアダプターで対応 |
-| 4資産の既定ティッカー | **VTI / BND / VXUS / BNDX（Yahoo 取得で確認済み）** | コードに固定せず設定で変更可能（`assets.default.json`） |
-| `ex_us_bond` の対象指数・為替方針 | BNDX（USD建て・unhedged）仮 | 国際債券ETFの為替ヘッジ有無と対象指数を確認 |
+| 4資産の既定ティッカー | **VTI / AGG / VXUS / IAGG（Yahoo 取得で確認済み）** | コードに固定せず設定で変更可能（`assets.default.json`） |
+| `ex_us_bond` の対象指数・為替方針 | IAGG（USD建て・unhedged）。2015年設立のため履歴は 2015-11〜 | 国際債券ETFの為替ヘッジ有無と対象指数を確認 |
 | 履歴長・共通履歴開始日 | 実取得時の meta.firstTradeDate / regularMarketTime で確認可能 | fetch 実行後に決定し画面表示 |
 | 最適化実ロジック | **実装済み**（`app/optimization/`・`static_allocation`。固定値テストで検証）。**API 配線済み**（`POST /api/optimizations`） | rebalance_allocation・最適化画面（GUI）・互換性表 |
 | バックテスト実ロジック | **実装済み**（`app/backtest/engine.py`・固定ウェイト。`POST /api/backtests`・`BacktestScreen` 配線済み） | rebalance_allocation（再最適化リバランス）・実行結果の永続化 |
@@ -330,3 +330,4 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
 - **2026-08-10** — 比較・保存画面を実装（ユーザー決定: 保存は「フロント保持+エクスポート」。バックエンド runs 永続化はスコープ外）。`frontend/src/compare/`（`types.ts`・`CompareContext.tsx`・`export.ts`・`indicators.ts`）と `CompareScreen.tsx` を新設し、`App.tsx` の画面全体を `CompareProvider` で包んで実行結果をグローバル保持（最大50件・メモリ保持・ページ再読込で消失）。最適化・バックテスト画面に「比較に追加」ボタンを追加。比較画面は種別ごとに指標比較表（最良値を強調表示、`null` は「—」）、ラベル編集・削除、JSON（実行結果一式）/ CSV（指標比較表・横持ち）エクスポート（Blob ダウンロード）を実装。免責文（保存はブラウザ内のみ・将来の成果を保証しない）を UI に併記。テスト `CompareScreen.test.tsx`（6件）＋既存 `OptimizationScreen`/`BacktestScreen`/`App` テストを Provider 込みに更新（全25件 green）。
 - **2026-08-10** — リターン/リスク表示と `efficient_return` の限界調査。`app/domain/returns.py` に `ema_annual_return`・`sharpe_ratio`・`return_stats` を追加し、`GET /api/data/analysis` の `stats` フィールド（`AssetStats`）として資産ごとの平均/EMA 年率リターン・年率ボラ・シャープを返すようにした（リスクフリー金利は既定 0.0・UI に明示）。分析画面に統計表を追加。最適化画面は選択中リターン方式（平均/EMA）を日本語ラベルで明示し、`efficient_return` の限界値についてヒントを追加。
 - **`efficient_return` の限界挙動（調査結論）**: PyPortfolioOpt の `efficient_return` は min-vol を目的関数とし、`ret >= target_return` の**不等式制約**で解く。上限判定 `_max_return_value` は「weight_bounds 内で単一資産に全振りしたときの最大期待リターン」で、これを超えると `ValueError`（日本語 400 に変換）。対象が単一資産 100% になるのは目標リターンが `_max_return_value` に**等しい場合のみ**で、わずかに下回ると min-vol 目的のため分散的に複数資産へ逃げる。実データ（EMA）では `ex_us_equity`（VXUS）の EMA 期待リターン ≈ 0.2559 が最大で、0.255 では VXUS/VTI に分散する（これが観察された挙動）。これはエンジンの正しい限界であり、回避策として限界値を UI に明示した（将来は上限バリデーションや上限値の事前表示を検討）。
+- **2026-08-10** — 既定ティッカーを変更（ユーザー指示）。米国債券 `BND`→`AGG`（iShares Core U.S. Aggregate Bond、同一 Bloomberg US Agg Index、2003-09〜・5751行）、米国を除く債券 `BNDX`→`IAGG`（iShares Core International Aggregate Bond、同一 Bloomberg Global Agg ex-USD Index、USD建て・unhedged を継続）。Yahoo chart API で取得可能性・データ品質（欠損0・重複0）を確認後、`assets.default.json` を更新し `fetch` で再取得。全機能（assets / series / analysis / optimizations / backtests）を統合テストで確認（すべて 200、最適化・バックテストの指標は意味のある値）。**`ex_us_bond` の履歴は 2013-06（BNDX）→ 2015-11（IAGG）に短縮**（IAGG は2015年設立のため）。これは機能の欠落ではなく利用可能期間の変化。「4資産を揃えた分析・最適化」は2015年以降に限定される点に注意。

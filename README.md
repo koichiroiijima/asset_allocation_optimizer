@@ -115,9 +115,9 @@ OpenAPI スキーマは起動後に `http://localhost:8000/docs` で確認でき
 | 論理資産 | 表示名 | 既定ティッカー | 対象指数 | 通貨 |
 | --- | --- | --- | --- | --- |
 | `us_equity` | 米国株式 | `VTI` | CRSP US Total Market Index | USD |
-| `us_bond` | 米国債券 | `BND` | Bloomberg U.S. Aggregate Bond Index | USD |
+| `us_bond` | 米国債券 | `AGG` | Bloomberg U.S. Aggregate Bond Index | USD |
 | `ex_us_equity` | 米国を除く株式 | `VXUS` | FTSE Global All Cap ex US Index | USD |
-| `ex_us_bond` | 米国を除く債券 | `BNDX` | Bloomberg Global Aggregate ex-USD Index | USD |
+| `ex_us_bond` | 米国を除く債券 | `IAGG` | Bloomberg Global Aggregate ex-USD Index | USD |
 
 > 既定ティッカーは **Yahoo Finance chart API で取得確認済み**です（データソースの選定理由・Adjusted Close / 分配金の扱いは [`docs/design.md`](docs/design.md) の §6.4 を参照）。ティッカーは設定で変更可能で、`sync` を前提にコードへ固定していません。
 
@@ -128,7 +128,7 @@ OpenAPI スキーマは起動後に `http://localhost:8000/docs` で確認でき
 ```bash
 cd backend
 
-# 全4資産（VTI / BND / VXUS / BNDX）の全履歴を取得して保存
+# 全4資産（VTI / AGG / VXUS / IAGG）の全履歴を取得して保存
 uv run python -m app.cli fetch
 
 # 特定資産・期間を指定
