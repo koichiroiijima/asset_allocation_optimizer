@@ -27,14 +27,14 @@
 - 例外を握りつぶさず、ユーザーに理解可能なメッセージと内部ログを分ける。
 - このファイルは実装上の作業規範を扱い、詳細な金融モデル仕様は`docs/design.md`等に分離する。両者が矛盾する場合は、ユーザーの最新指示を優先し、設計メモを更新する。
 
-## 実装状況サマリ（2026-08-09時点）
+## 実装状況サマリ（2026-08-10時点）
 
 実装済み（進捗詳細は [`docs/TODO.md`](docs/TODO.md)）：
 
-- **データ取得**: Yahoo Finance chart API（query2）→ `app.cli fetch` / `export-csv` パイプライン（raw / processed Parquet、スナップショットハッシュ、SQLite fetch_history）。4資産は VTI / AGG / VXUS / IAGG。日次取得（`period1`/`period2` 明示で Yahoo の月足ダウンサンプリングを回避）。IAGG は2015年設立のため履歴は BNDX より短い（2015-11〜）。
-- **リターン計算**: `app/domain/returns.py`（単純／対数／累積リターン・年率換算・頻度リサンプリング・`rolling_volatility`・`correlation_matrix`）。欠損は補完しない。
-- **GUI**: データ画面（系列グラフ）・分析画面（価格推移・累積リターン・ローリングボラ・相関ヒートマップ）・最適化画面（手法・期間・制約入力と結果表示）・バックテスト画面（固定ウェイトリバランス・累積資産/ドローワウン/配分推移・指標・取引一覧）を実装。
-- **最適化**: `app/optimization/service.py` の `static_allocation`（PyPortfolioOpt）＋ `POST /api/optimizations`（同期・`start`/`end` でルックアヘッド回避）。
+- **データ取得**: Yahoo Finance chart API（query2）→ `app.cli fetch` / `export-csv` パイプライン（raw / processed Parquet、スナップショットハッシュ、SQLite fetch_history）。4資産は VTI / AGG / VXUS / IAGG。日次取得（`period1`/`period2` 明示で Yahoo の月足ダウンサンプリングを回避）。IAGG は2015年設立のため履歴は BNDX より短い（2015-11〜）。AGG: 2003-09〜。
+- **リターン計算**: `app/domain/returns.py`（単純／対数／累積リターン・年率換算・頻度リサンプリング・`rolling_volatility`・`correlation_matrix`・`return_stats`/`ema_annual_return`/`sharpe_ratio`）。欠損は補完しない。
+- **GUI**: データ画面（系列グラフ）・分析画面（価格推移・累積リターン・ローリングボラ・相関ヒートマップ・**リターン/リスク統計表**）・最適化画面（手法・期間・制約入力と結果表示、選択リターン方式をラベル明示）・バックテスト画面（固定ウェイトリバランス・累積資産/ドローワウン/配分推移・指標・取引一覧）・比較・保存画面（複数結果比較・JSON/CSV エクスポート）を実装。
+- **最適化**: `app/optimization/service.py` の `static_allocation`（PyPortfolioOpt）＋ `POST /api/optimizations`（同期・`start`/`end` でルックアヘッド回避）。`efficient_return` は PyPortfolioOpt の限界（単一資産最大期待リターンを超えると400・境界値では分散に逃げる）を UI ヒントで明示。
 - **バックテスト**: `app/backtest/engine.py` の `run_backtest`（固定ウェイト・**次営業日約定でルックアヘッド回避**）＋ `POST /api/backtests`。評価指標（累積/年率リターン・ボラ・Sharpe/Sortino/Calmar・最大DD・勝率・回転率・手数料）は未定義を null で返す。バイアス検知テストで未来データ混入を検出。
 - **比較・保存**: `frontend/src/compare/`（`CompareContext`・`export.ts`・`indicators.ts`）＋ `CompareScreen.tsx`。最適化・バックテスト結果を「比較に追加」でブラウザ内（メモリ・最大50件）にグローバル保持し、種別ごとの指標比較（最良値強調・null は「—」）と JSON / CSV エクスポートを行う。保存はブラウザ内のみ（ページ再読込で消失）と免責を UI に明示。
 
