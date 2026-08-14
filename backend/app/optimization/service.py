@@ -19,6 +19,8 @@ CLAUDE.md:
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pandas as pd
 from pypfopt import (  # type: ignore[import-untyped]
@@ -35,6 +37,7 @@ from app.schemas.optimization import (
     OptimizationResult,
     StaticAllocationParams,
 )
+from app.schemas.series import Frequency
 
 
 class OptimizationInputError(ValueError):
@@ -247,6 +250,17 @@ def static_allocation(
         risk_free_rate=params.risk_free_rate, verbose=False
     )
 
+    # 個別資産ごとの年率期待リターン（mu）／年率ボラ（sqrt 対角）を返す。
+    # 最適化に使った推定アルゴリズム（期待リターン方式・共分散方式）と一致する。
+    mu_aligned = mu.reindex(assets).astype("float64")
+    sigma_aligned = sigma.reindex(index=assets, columns=assets).astype("float64")
+    mu_vals = mu_aligned.to_dict()
+    sigma_diag = np.diag(sigma_aligned.to_numpy(dtype="float64"))
+    asset_returns = {a: float(mu_vals[a]) for a in assets}
+    asset_vols = {
+        a: float(math.sqrt(max(0.0, float(sigma_diag[i])))) for i, a in enumerate(assets)
+    }
+
     return OptimizationResult(
         method=params.optimization_method,
         weights=raw_weights,
@@ -255,10 +269,94 @@ def static_allocation(
             expected_annual_return=float(expected_return),
             annual_volatility=float(volatility),
             sharpe_ratio=float(sharpe),
+            asset_returns=asset_returns,
+            asset_volatilities=asset_vols,
         ),
         params=params,
         warnings=warnings,
     )
+
+
+def _rebalance_signal_dates(dates: pd.DatetimeIndex, freq: str) -> list[pd.Timestamp]:
+    """リバランスのシグナル日（判定日）を返す（バックテストエンジンと同規則）。
+
+    - `D`: 初日を除く全観測日。
+    - `W`/`M`/`Y`: 各期間（週/月/年）の最終観測日（`resample_*` と同じ集約規則）。
+    """
+    if freq == "D":
+        return [pd.Timestamp(d) for d in dates[1:]]
+    grouper_freq = {"W": "W", "M": "ME", "Y": "YE"}[freq]
+    series = pd.Series(dates, index=dates)
+    signals: list[pd.Timestamp] = []
+    for _, grp in series.groupby(pd.Grouper(freq=grouper_freq)):
+        if len(grp):
+            last = pd.Timestamp(grp.index[-1])
+            if last > dates[0]:
+                signals.append(last)
+    return signals
+
+
+def _execution_dates(
+    signals: list[pd.Timestamp], dates: pd.DatetimeIndex
+) -> list[pd.Timestamp]:
+    """シグナル日の「次の観測日」を約定日とする。以後に観測が無ければ不発火。"""
+    arr = np.asarray(dates, dtype="datetime64[ns]")
+    result: list[pd.Timestamp] = []
+    for s in signals:
+        nxt = arr[arr > np.datetime64(s)]
+        if len(nxt):
+            result.append(pd.Timestamp(nxt[0]))
+    return result
+
+
+def rebalance_allocation(
+    prices: pd.DataFrame,
+    params: StaticAllocationParams,
+    asset_ids: list[str],
+    rebalance_frequency: Frequency,
+) -> tuple[dict[pd.Timestamp, dict[str, float]], list[str]]:
+    """リバランス時に再最適化するための、実行日→ターゲットウェイトを返す。
+
+    - 各シグナル日（頻度 D/W/M/Y の最終観測日）まで `prices.loc[:sig]` に
+      スライスして `static_allocation` を実行する。スライスによりシグナル日以降の
+      データを使わないためルックアヘッドを構造的に回避する（`static_allocation` は
+      内部で時系列スライスしない設計を維持）。
+    - 最適化に失敗（データ不足・達成不能な目標値など）した時点はスキップし、
+      **直前のウェイトを継続**する。その旨を日本語警告に積む（ユーザー決定）。
+    - `params`: 再最適化で使う最適化パラメータ。`asset_ids`: 最適化の対象資産
+      （保存済み最適化の再現パラメータから渡す）。
+    - 戻り値は「実行日（=シグナル日の翌観測日）→ウェイト」マップと警告一覧。
+    """
+    warnings: list[str] = []
+    dates = pd.DatetimeIndex(prices.index)
+    signals = _rebalance_signal_dates(dates, rebalance_frequency)
+    exec_dates = _execution_dates(signals, dates)
+
+    # 対象資産のみの列に限定しない場合は外側 union に他資産が混ざるため、
+    # asset_ids の列だけを最適化に渡す（価格は外側 union でも構わない）。
+    sub = prices[asset_ids].dropna(how="all")
+
+    weights_by_exec: dict[pd.Timestamp, dict[str, float]] = {}
+    failed = 0
+    for sig, execd in zip(signals, exec_dates, strict=False):
+        try:
+            slice_df = sub.loc[:sig]
+            result = static_allocation(slice_df, params)
+        except OptimizationInputError as exc:
+            failed += 1
+            warnings.append(
+                f"{sig.date().isoformat()} の再最適化に失敗したため、"
+                f"直前のウェイトを継続しました: {exc.message}"
+            )
+            continue
+        weights_by_exec[execd] = dict(result.clean_weights)
+
+    if failed:
+        warnings.insert(
+            0,
+            f"{failed} リバランス時点で再最適化に失敗したため、直前のウェイトを継続しました。",
+        )
+    return weights_by_exec, warnings
 
 
 # 下位互換のため静的エイリアスを提供（ドメイン層のエントリポイント）。
@@ -268,5 +366,6 @@ __all__ = [
     "OptimizationInputError",
     "StaticAllocationParams",
     "optimize",
+    "rebalance_allocation",
     "static_allocation",
 ]

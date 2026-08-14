@@ -1,6 +1,10 @@
 /** 比較・保存機能の型定義。実行結果（最適化・バックテスト）を蓄積し、比較・エクスポートする。 */
 
-import type { BacktestResponse, OptimizationResponse } from '../api/types';
+import type {
+  BacktestResponse,
+  OptimizationRequest,
+  OptimizationResponse,
+} from '../api/types';
 
 /** 比較に保存する結果の種別。 */
 export type StoredResultKind = 'optimization' | 'backtest';
@@ -26,6 +30,11 @@ export interface StoredResult {
   periodEnd?: string;
   /** 実行結果の全内容。 */
   result: OptimizationResponse | BacktestResponse;
+  /**
+   * 実行リクエスト（最適化の再現用）。最適化結果を保存する際に
+   * `OptimizationRequest` を保持し、バックテストの再最適化で再現に使う。
+   */
+  request?: OptimizationRequest;
 }
 
 /** 実行結果を一意に識別するための ID（UUID）。テストでは置換可能にする。 */

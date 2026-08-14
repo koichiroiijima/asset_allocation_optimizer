@@ -13,10 +13,12 @@ import { api } from '../api';
 import { useCompare } from '../compare/CompareContext';
 import { makeResultId, type StoredResult } from '../compare/types';
 import { useAssets } from '../hooks/useAssets';
+import { isOptimizationResult } from '../compare/indicators';
 import type {
   Asset,
   BacktestRequest,
   BacktestResponse,
+  OptimizationRequest,
   RebalanceFrequency,
 } from '../api/types';
 
@@ -25,6 +27,7 @@ const REBALANCE_OPTIONS: { value: RebalanceFrequency; label: string }[] = [
   { value: 'D', label: '日次' },
   { value: 'W', label: '週次' },
   { value: 'M', label: '月次' },
+  { value: 'Y', label: '年次' },
 ];
 
 /** 資産別の配色（4資産 + 折返し）。 */
@@ -40,13 +43,17 @@ interface FormState {
   riskFreeRate: string;
   start: string;
   end: string;
+  /** 再最適化元に選んだ最適化結果の id（比較一覧から）。空文字なら未選択。 */
+  rebalanceOptimizationId: string;
+  /** リバランス時に再最適化するか。 */
+  reoptimize: boolean;
 }
 
 const INITIAL_CAPITAL = '1000000';
 const COST_RATE = '0';
 
 /** フォーム入力を BacktestRequest へ変換する。 */
-function buildRequest(f: FormState): BacktestRequest {
+function buildRequest(f: FormState, optimization?: OptimizationRequest): BacktestRequest {
   const weights: Record<string, number> = {};
   for (const a of f.selectedAssetIds) {
     weights[a] = Number(f.weights[a] ?? 0);
@@ -60,6 +67,8 @@ function buildRequest(f: FormState): BacktestRequest {
     risk_free_rate: Number(f.riskFreeRate),
     annualization_factor: 252,
     lookback: 252,
+    reoptimize: f.reoptimize,
+    optimization_params: f.reoptimize ? optimization : undefined,
     start: f.start || undefined,
     end: f.end || undefined,
   };
@@ -71,7 +80,7 @@ function weightSum(f: FormState): number {
 }
 
 /** クライアント側の軽い検証（サーバー 422 に依存しない）。 */
-function validateForm(f: FormState): string | null {
+function validateForm(f: FormState, optimization?: OptimizationRequest): string | null {
   if (f.selectedAssetIds.length < 1) {
     return '対象資産を1件以上選択してください';
   }
@@ -90,6 +99,9 @@ function validateForm(f: FormState): string | null {
   const capital = Number(f.initialCapital);
   if (Number.isNaN(capital) || capital <= 0) {
     return '初期資金は正の数値で入力してください';
+  }
+  if (f.reoptimize && !optimization) {
+    return '再最適化には「再最適化元の最適化」の選択が必要です';
   }
   return null;
 }
@@ -138,6 +150,8 @@ export function BacktestScreen() {
     riskFreeRate: '0',
     start: '',
     end: '',
+    rebalanceOptimizationId: '',
+    reoptimize: false,
   });
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<BacktestResponse | null>(null);
@@ -146,7 +160,18 @@ export function BacktestScreen() {
   const [added, setAdded] = useState(false);
 
   const { assets, error: assetsError, loading: assetsLoading, refresh } = useAssets();
-  const { addResult } = useCompare();
+  const { results: savedResults, addResult } = useCompare();
+
+  // 再最適化元に選べる最適化結果一覧（比較・保存に蓄積された最適化のみ）。
+  const optimizationOptions = useMemo(
+    () => savedResults.filter((r) => r.kind === 'optimization'),
+    [savedResults],
+  );
+
+  const selectedOptimization = useMemo(() => {
+    const found = optimizationOptions.find((r) => r.id === form.rebalanceOptimizationId);
+    return found && isOptimizationResult(found.result) ? found : undefined;
+  }, [optimizationOptions, form.rebalanceOptimizationId]);
 
   const availableAssets = useMemo(
     () =>
@@ -158,33 +183,13 @@ export function BacktestScreen() {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  /** 資産の選択（複数）。ウェイトは新規分を 0 で初期化する。 */
-  const handleAssetToggle = (assetId: string, checked: boolean) => {
-    setForm((prev) => {
-      if (checked) {
-        return {
-          ...prev,
-          selectedAssetIds: [...prev.selectedAssetIds, assetId],
-          weights: { ...prev.weights, [assetId]: '0' },
-        };
-      }
-      const nextWeights = { ...prev.weights };
-      delete nextWeights[assetId];
-      return {
-        ...prev,
-        selectedAssetIds: prev.selectedAssetIds.filter((a) => a !== assetId),
-        weights: nextWeights,
-      };
-    });
-  };
-
   const handleWeightChange = (assetId: string, value: string) => {
     setForm((prev) => ({ ...prev, weights: { ...prev.weights, [assetId]: value } }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const validationError = validateForm(form);
+    const validationError = validateForm(form, selectedOptimization?.request);
     if (validationError) {
       setSubmitError(null);
       setFormError(validationError);
@@ -195,7 +200,9 @@ export function BacktestScreen() {
     setResult(null);
     setRunning(true);
     try {
-      const response = await api.runBacktest(buildRequest(form));
+      const response = await api.runBacktest(
+        buildRequest(form, selectedOptimization?.request),
+      );
       setResult(response);
     } catch (err) {
       setSubmitError(friendlyError(err));
@@ -230,21 +237,31 @@ export function BacktestScreen() {
       {availableAssets.length > 0 && (
         <>
           <form className="opt-form" onSubmit={handleSubmit}>
-            <fieldset style={{ border: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-              <legend style={{ fontSize: '0.85rem', color: '#5a6270', marginBottom: '0.25rem' }}>
-                対象資産（複数選択）
-              </legend>
-              {availableAssets.map((a) => (
-                <label key={a.logical_asset} style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-                  <input
-                    type="checkbox"
-                    checked={form.selectedAssetIds.includes(a.logical_asset)}
-                    onChange={(e) => handleAssetToggle(a.logical_asset, e.target.checked)}
-                  />
-                  <span>{assetLabel(a.logical_asset, assets?.assets)}</span>
-                </label>
-              ))}
-            </fieldset>
+            <label>
+              <span>対象資産（Ctrl+クリックで複数選択）</span>
+              <select
+                multiple
+                size={4}
+                value={form.selectedAssetIds}
+                onChange={(e) => {
+                  const next = Array.from(e.target.selectedOptions)
+                    .filter((o) => o.selected)
+                    .map((o) => o.value);
+                  const removed = form.selectedAssetIds.filter((a) => !next.includes(a));
+                  const added = next.filter((a) => !form.selectedAssetIds.includes(a));
+                  const nextWeights = { ...form.weights };
+                  for (const a of removed) delete nextWeights[a];
+                  for (const a of added) nextWeights[a] = form.weights[a] ?? '0';
+                  setForm((prev) => ({ ...prev, selectedAssetIds: next, weights: nextWeights }));
+                }}
+              >
+                {availableAssets.map((a) => (
+                  <option key={a.logical_asset} value={a.logical_asset}>
+                    {assetLabel(a.logical_asset, assets?.assets)}
+                  </option>
+                ))}
+              </select>
+            </label>
 
             {form.selectedAssetIds.map((assetId) => (
               <label key={assetId}>
@@ -281,6 +298,39 @@ export function BacktestScreen() {
                   </option>
                 ))}
               </select>
+            </label>
+
+            <label>
+              <span>再最適化元の最適化（比較一覧）</span>
+              <select
+                value={form.rebalanceOptimizationId}
+                onChange={(e) =>
+                  update('rebalanceOptimizationId', e.target.value)
+                }
+              >
+                <option value="">未選択</option>
+                {optimizationOptions.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+              <span className="hint-text">
+                最適化画面で「比較に追加」した結果を選ぶと、そのアルゴリズムで再最適化できます。
+              </span>
+            </label>
+
+            <label>
+              <span>リバランス時に再最適化</span>
+              <input
+                type="checkbox"
+                checked={form.reoptimize}
+                onChange={(e) => update('reoptimize', e.target.checked)}
+              />
+              <span className="hint-text">
+                各リバランス時点まで（開始日またはデータ冒頭から）で最適化し、編入ウェイトを決めます。
+                再最適化に失敗した時点は直前のウェイトを継続します。
+              </span>
             </label>
 
             <label>
@@ -479,6 +529,32 @@ export function BacktestScreen() {
                 </ResponsiveContainer>
               ) : (
                 <p className="warning-text">表示できる配分推移がありません。</p>
+              )}
+
+              {result.rebalance_weights && result.rebalance_weights.length > 0 && (
+                <>
+                  <h4>リバランス時の採用ウェイト（再最適化）</h4>
+                  <table className="result-table">
+                    <thead>
+                      <tr>
+                        <th>日付</th>
+                        {result.asset_ids.map((a) => (
+                          <th key={a}>{assetLabel(a, assets?.assets)}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {result.rebalance_weights.map((p) => (
+                        <tr key={p.date}>
+                          <td>{p.date}</td>
+                          {result.asset_ids.map((a) => (
+                            <td key={a}>{(p.weights[a] ?? 0).toFixed(4)}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
               )}
 
               <h4>取引一覧（直近 200 件）</h4>

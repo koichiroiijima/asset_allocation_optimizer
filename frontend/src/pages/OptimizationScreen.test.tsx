@@ -84,6 +84,8 @@ const OPTIMIZATION_BODY = {
     expected_annual_return: 0.08,
     annual_volatility: 0.05,
     sharpe_ratio: 1.6,
+    asset_returns: { us_equity: 0.12, us_bond: 0.03 },
+    asset_volatilities: { us_equity: 0.19, us_bond: 0.05 },
   },
   params: {
     optimization_method: 'max_sharpe',
@@ -200,6 +202,33 @@ describe('OptimizationScreen', () => {
 
     await user.selectOptions(methodSelect, 'max_sharpe');
     expect(screen.queryByText('目標リターン（年率）')).not.toBeInTheDocument();
+  });
+
+  it('efficient_return に説明文が表示されない（target_return 入力は残る）', async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    renderWithProvider(<OptimizationScreen />);
+    await screen.findByRole('listbox', { name: /対象資産/ });
+    const methodSelect = screen.getByRole('combobox', { name: /手法/ });
+    await user.selectOptions(methodSelect, 'efficient_return');
+    expect(screen.getByText('目標リターン（年率）')).toBeInTheDocument();
+    // 削除した説明文が表示されないこと
+    expect(screen.queryByText(/目標リターンは、最適化に使う/)).not.toBeInTheDocument();
+  });
+
+  it('個別資産のリターン・リスク統計が表示される', async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    renderWithProvider(<OptimizationScreen />);
+    await selectTwoAssetsAndSubmit(user);
+
+    await waitFor(() => expect(screen.getByText('0.4000')).toBeInTheDocument());
+    expect(screen.getByText('個別資産のリターン・リスク（年率）')).toBeInTheDocument();
+    // 資産ごとの年率リターン（12%、3%）と年率ボラ（19%、5%）
+    expect(screen.getByText('12.00%')).toBeInTheDocument();
+    expect(screen.getByText('3.00%')).toBeInTheDocument();
+    expect(screen.getByText('19.00%')).toBeInTheDocument();
+    expect(screen.getByText('5.00%')).toBeInTheDocument();
   });
 
   it('バックエンドが400（日本語 detail）を返すとエラーを表示する', async () => {

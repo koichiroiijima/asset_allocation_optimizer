@@ -156,6 +156,10 @@ export interface OptimizationMetrics {
   expected_annual_return: number;
   annual_volatility: number;
   sharpe_ratio: number;
+  /** 個別資産ごとの年率リターン（最適化に使った期待リターン推定）。 */
+  asset_returns: Record<string, number>;
+  /** 個別資産ごとの年率ボラ（最適化に使った共分散の対角）。 */
+  asset_volatilities: Record<string, number>;
 }
 
 export interface OptimizationResponse {
@@ -177,7 +181,7 @@ export interface OptimizationResponse {
 }
 
 /** `POST /api/backtests` のリクエスト/レスポンス。 */
-export type RebalanceFrequency = 'D' | 'W' | 'M';
+export type RebalanceFrequency = 'D' | 'W' | 'M' | 'Y';
 
 export interface BacktestRequest {
   asset_ids: string[];
@@ -188,6 +192,10 @@ export interface BacktestRequest {
   risk_free_rate: number;
   annualization_factor: number;
   lookback: number;
+  /** リバランス時に再最適化するか。 */
+  reoptimize?: boolean;
+  /** 再最適化に使う最適化パラメータ（保存済み最適化の再現）。 */
+  optimization_params?: OptimizationRequest;
   start?: string;
   end?: string;
 }
@@ -241,6 +249,8 @@ export interface BacktestResponse {
     risk_free_rate: number;
     annualization_factor: number;
     lookback: number;
+    reoptimize?: boolean;
+    optimization_params?: OptimizationRequest;
   };
   currency: string;
   metrics: BacktestMetrics;
@@ -249,5 +259,7 @@ export interface BacktestResponse {
   yearly: YearlyPerformance[];
   allocation: AllocationPoint[];
   trades: BacktestTrade[];
+  /** リバランス時に採用したターゲットウェイト（再最適化時のみ）。 */
+  rebalance_weights?: AllocationPoint[] | null;
   warnings: string[];
 }

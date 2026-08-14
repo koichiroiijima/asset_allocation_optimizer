@@ -14,6 +14,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.schemas.optimization import OptimizationRequest
 from app.schemas.series import Frequency
 
 RebalanceFrequency = Frequency
@@ -35,6 +36,8 @@ class BacktestParams(BaseModel):
     risk_free_rate: float = 0.0
     annualization_factor: int = Field(default=252, ge=1)
     lookback: int = Field(default=252, ge=1)
+    reoptimize: bool = False
+    optimization_params: OptimizationRequest | None = None
 
     @model_validator(mode="after")
     def _validate_weights(self) -> BacktestParams:
@@ -45,6 +48,16 @@ class BacktestParams(BaseModel):
         if abs(sum(self.weights.values()) - 1.0) > 1e-4:
             raise ValueError(
                 f"ウェイトの合計が 1 になりません（現在: {sum(self.weights.values()):.6f}）"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_reoptimize(self) -> BacktestParams:
+        """再最適化フラグが立っているときは最適化パラメータの指定を必須にする。"""
+        if self.reoptimize and self.optimization_params is None:
+            raise ValueError(
+                "reoptimize=True のときは optimization_params（再最適化に使う最適化パラメータ）"
+                "が必要です"
             )
         return self
 
@@ -134,6 +147,7 @@ class BacktestResult(BaseModel):
     yearly: list[YearlyPerformance] = Field(default_factory=list)
     allocation: list[AllocationPoint] = Field(default_factory=list)
     trades: list[Trade] = Field(default_factory=list)
+    rebalance_weights: list[AllocationPoint] | None = None
     warnings: list[str] = Field(default_factory=list)
 
 

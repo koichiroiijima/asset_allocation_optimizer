@@ -93,6 +93,11 @@ def test_optimization_returns_weights_and_metrics(
     # 手法・パラメータが応答に含まれる（params の再現）
     assert body["params"]["optimization_method"] == "max_sharpe"
     assert body["params"]["risk_free_rate"] == 0.0
+    # 個別資産ごとの年率リターン／ボラが含まれる
+    assert set(body["metrics"]["asset_returns"]) == {"us_equity", "us_bond"}
+    assert set(body["metrics"]["asset_volatilities"]) == {"us_equity", "us_bond"}
+    for v in body["metrics"]["asset_volatilities"].values():
+        assert v > 0.0
 
 
 def test_optimization_min_volatility_prefers_bond(

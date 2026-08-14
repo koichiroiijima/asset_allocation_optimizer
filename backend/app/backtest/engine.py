@@ -106,12 +106,12 @@ def _rebalance_signal_dates(dates: pd.DatetimeIndex, freq: str) -> list[pd.Times
     """リバランスのシグナル日（判定日）を返す。
 
     - `D`: 初日を除く全観測日。
-    - `W`/`M`: 各期間（週/月）の最終観測日（`resample_*` と同じ集約規則。
+    - `W`/`M`/`Y`: 各期間（週/月/年）の最終観測日（`resample_*` と同じ集約規則。
       pandas 既定アンカーに委ねる。design.md の保留事項）。
     """
     if freq == "D":
         return [pd.Timestamp(d) for d in dates[1:]]
-    grouper_freq = "W" if freq == "W" else "ME"
+    grouper_freq = {"W": "W", "M": "ME", "Y": "YE"}[freq]
     series = pd.Series(dates, index=dates)
     signals: list[pd.Timestamp] = []
     for _, grp in series.groupby(pd.Grouper(freq=grouper_freq)):
@@ -139,11 +139,17 @@ def _simulate(
     execution_dates: set[pd.Timestamp],
     initial_capital: float,
     cost_rate: float,
+    *,
+    weights_by_exec: dict[pd.Timestamp, dict[str, float]] | None = None,
 ) -> tuple[np.ndarray, list[Trade], float, list[dict[str, float]]]:
     """ポートフォリオを前進ループで評価し、equity・取引・回転率寄与・配分を返す。
 
     - 初日 t0 は初期投資（全資産を BUY。初期手数料も賦課し取引一覧に記録）。
     - 約定日は保有をターゲットウェイトへ戻す（差額のみ売買・両建て手数料）。
+    - `weights_by_exec` を渡すと各実行日のターゲットが日ごとに異なる
+      （リバランス時再最適化）。渡さなければ全実行日で固定 `weights` へ戻す。
+    - 実行日に `weights_by_exec` のエントリが無い（再最適化失敗など）場合は
+      直前のウェイトを継続してリバランスしない。
     - リバランス日以外は shares/cash を不変に保ち、日次で評価額を記録する。
     """
     assets = list(weights)
@@ -190,7 +196,8 @@ def _simulate(
         allocation.append({a: (mktval[a] / equity_i) if equity_i > 0 else 0.0 for a in assets})
 
         if d in execution_dates:
-            targets = {a: equity_i * weights[a] for a in assets}
+            target = (weights_by_exec or {}).get(d, weights)
+            targets = {a: equity_i * target[a] for a in assets}
             deltas = {a: targets[a] - mktval[a] for a in assets}
             if equity_i > 0:
                 turnover_contrib += 0.5 * sum(abs(v) for v in deltas.values()) / equity_i
@@ -321,12 +328,17 @@ def run_backtest(
     params: BacktestParams,
     *,
     currency: str = "",
+    weights_by_exec: dict[pd.Timestamp, dict[str, float]] | None = None,
 ) -> BacktestResult:
     """固定ウェイト・バックテストを実行し、結果一式を返す。
 
     - `prices`: 列=資産、行=日次 adjusted_close（DatetimeIndex 昇順）。
     - `params`: 固定ウェイト・リバランス頻度・初期資金・コスト率など。
-    - ルックアヘッド回避は「約定日=シグナル日の翌観測日」構造により保証される。
+    - `weights_by_exec`: 各実行日→ターゲットウェイト（リバランス時再最適化）。
+      省略・空なら固定 `params.weights` を使う（既存挙動）。
+    - ルックアヘッド回避は「約定日=シグナル日の翌観測日」構造により保証される
+      （再最適化時も、各シグナル日までのスライスで最適化を行うかは呼び出し側
+      が担保する）。
     """
     assets = _ordered_assets(prices)
     usable, load_warnings = _usable_prices(prices, assets)
@@ -342,6 +354,7 @@ def run_backtest(
         set(exec_dates),
         params.initial_capital,
         params.cost_rate,
+        weights_by_exec=weights_by_exec or {},
     )
 
     total_fees = sum(t.fee for t in trades)
@@ -351,6 +364,16 @@ def run_backtest(
 
     warnings = list(load_warnings)
     metrics = _compute_metrics(equity, params, total_fees, turnover, warnings)
+
+    # 採用したターゲットウェイト（再最適化時のみ各実行日で変わる。固定は None）。
+    rebalance_weights: list[AllocationPoint] | None = None
+    if weights_by_exec:
+        rebalance_weights = [
+            AllocationPoint(date=d.date(), weights=w)
+            for d, w in weights_by_exec.items()
+            if d in set(exec_dates)
+        ]
+        rebalance_weights.sort(key=lambda p: p.date)
 
     return BacktestResult(
         asset_ids=assets,
@@ -369,6 +392,7 @@ def run_backtest(
         ],
         trades=trades,
         warnings=warnings,
+        rebalance_weights=rebalance_weights,
     )
 
 

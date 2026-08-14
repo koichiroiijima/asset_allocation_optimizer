@@ -208,3 +208,81 @@ def test_backtest_negative_weight_returns_422(
         json=_backtest_payload(weights={"us_equity": 1.2, "us_bond": -0.2}),
     )
     assert resp.status_code == 422
+
+
+def test_backtest_annual_frequency_ok(client: TestClient, tmp_settings: Settings) -> None:
+    """年次（Y）リバランスでも実行できる。"""
+    _save_assets(ParquetPriceRepository(tmp_settings.processed_dir), ["us_equity", "us_bond"])
+    resp = client.post(
+        "/api/backtests", json=_backtest_payload(rebalance_frequency="Y")
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["params"]["rebalance_frequency"] == "Y"
+    # 年次は月次よりリバランス取引が少ない（初期投資のみの可能性も）
+    assert len(body["trades"]) <= len(
+        client.post("/api/backtests", json=_backtest_payload()).json()["trades"]
+    )
+
+
+def _opt_params_payload() -> dict[str, object]:
+    """再最適化で使う最適化パラメータ（保存済み最適化の再現）。"""
+    return {
+        "asset_ids": ["us_equity", "us_bond"],
+        "optimization_method": "max_sharpe",
+        "expected_return_method": "mean_historical_return",
+        "covariance_method": "sample_cov",
+        "risk_free_rate": 0.0,
+        "annualization_factor": 252,
+        "weight_bounds": [0.0, 1.0],
+    }
+
+
+def test_backtest_reoptimize_returns_rebalance_weights(
+    client: TestClient, tmp_settings: Settings
+) -> None:
+    """再最適化バックテスト: rebalance_weights が返り、警告に再最適化失敗が無い。"""
+    _save_assets(ParquetPriceRepository(tmp_settings.processed_dir), ["us_equity", "us_bond"])
+    resp = client.post(
+        "/api/backtests",
+        json=_backtest_payload(
+            reoptimize=True,
+            optimization_params=_opt_params_payload(),
+        ),
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    # 再最適化時は採用したターゲットウェイト一覧が返る
+    assert body["rebalance_weights"] is not None
+    assert len(body["rebalance_weights"]) >= 1
+    assert not any("失敗" in w for w in body["warnings"])
+
+
+def test_backtest_reoptimize_missing_asset_returns_400(
+    client: TestClient, tmp_settings: Settings
+) -> None:
+    """再最適化対象資産が未取得だと 400。"""
+    _save_assets(ParquetPriceRepository(tmp_settings.processed_dir), ["us_equity"])
+    resp = client.post(
+        "/api/backtests",
+        json=_backtest_payload(
+            asset_ids=["us_equity"],
+            weights={"us_equity": 1.0},
+            reoptimize=True,
+            optimization_params=_opt_params_payload(),  # us_bond が未取得
+        ),
+    )
+    assert resp.status_code == 400
+    assert "再最適化" in resp.json()["detail"]
+
+
+def test_backtest_reoptimize_without_params_returns_422(
+    client: TestClient, tmp_settings: Settings
+) -> None:
+    """reoptimize=True なのに optimization_params が無いと 422。"""
+    _save_assets(ParquetPriceRepository(tmp_settings.processed_dir), ["us_equity", "us_bond"])
+    resp = client.post(
+        "/api/backtests",
+        json=_backtest_payload(reoptimize=True),
+    )
+    assert resp.status_code == 422

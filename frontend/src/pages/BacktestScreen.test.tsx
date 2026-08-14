@@ -2,12 +2,50 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
-import { CompareProvider } from '../compare/CompareContext';
+import type { OptimizationResponse } from '../api/types';
+import { CompareProvider, useCompare } from '../compare/CompareContext';
+import { type StoredResult } from '../compare/types';
 import { BacktestScreen } from './BacktestScreen';
 
-/** CompareProvider で包んで描画する。 */
-function renderWithProvider(ui: React.ReactNode) {
-  return render(<CompareProvider>{ui}</CompareProvider>);
+/** テスト用の最適化結果（再最適化元の選択肢として保存する）。 */
+const OPTIMIZATION_RESULT: OptimizationResponse = {
+  method: 'max_sharpe',
+  weights: { us_equity: 0.4, us_bond: 0.6 },
+  clean_weights: { us_equity: 0.4, us_bond: 0.6 },
+  metrics: {
+    expected_annual_return: 0.08,
+    annual_volatility: 0.05,
+    sharpe_ratio: 1.6,
+    asset_returns: { us_equity: 0.12, us_bond: 0.03 },
+    asset_volatilities: { us_equity: 0.19, us_bond: 0.05 },
+  },
+  params: {
+    optimization_method: 'max_sharpe',
+    expected_return_method: 'mean_historical_return',
+    covariance_method: 'sample_cov',
+    risk_free_rate: 0,
+    annualization_factor: 252,
+    weight_bounds: [0, 1],
+  },
+  warnings: [],
+};
+
+/** 初期結果を Provider に投入してから画面を描画する。 */
+function Seed({ initial }: { initial: StoredResult[] }) {
+  const { addResult } = useCompare();
+  /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  React.useEffect(() => {
+    for (const r of initial) addResult(r);
+  }, [initial]);
+  return null;
+}
+
+/** CompareProvider で包んで描画する。追加の Provider ラッパーを指定できる。 */
+function renderWithProvider(
+  ui: React.ReactNode,
+  wrapper?: (children: React.ReactNode) => React.ReactNode,
+) {
+  return render(wrapper ? wrapper(ui) : <CompareProvider>{ui}</CompareProvider>);
 }
 
 const ASSETS_BODY = {
@@ -157,11 +195,10 @@ function stubFetch(backtestStub?: { body: unknown; status: number }) {
   return fetchMock;
 }
 
-/** 取得済み2資産をチェックし、ウェイトを 0.6/0.4 に設定して実行する。 */
+/** 取得済み2資産を選択し、ウェイトを 0.6/0.4 に設定して実行する。 */
 async function selectTwoAssetsAndSubmit(user: ReturnType<typeof userEvent.setup>) {
-  await screen.findByRole('checkbox', { name: /米国株式/ });
-  await user.click(screen.getByRole('checkbox', { name: /米国株式/ }));
-  await user.click(screen.getByRole('checkbox', { name: /米国債券/ }));
+  const listbox = await screen.findByRole('listbox', { name: /対象資産/ });
+  await user.selectOptions(listbox, ['us_equity', 'us_bond']);
 
   // ウェイト入力（米国株式 0.6、米国債券 0.4）
   const equityWeight = screen.getByLabelText(/米国株式.*ウェイト/);
@@ -200,9 +237,11 @@ describe('BacktestScreen', () => {
   it('取得済み資産のみが対象選択肢に表示される', async () => {
     stubFetch();
     renderWithProvider(<BacktestScreen />);
-    await screen.findByRole('checkbox', { name: /米国株式/ });
-    expect(screen.getByRole('checkbox', { name: /米国債券/ })).toBeInTheDocument();
-    expect(screen.queryByRole('checkbox', { name: /米国を除く株式/ })).not.toBeInTheDocument();
+    const listbox = await screen.findByRole('listbox', { name: /対象資産/ });
+    const options = Array.from(listbox.querySelectorAll('option')).map((o) => o.textContent);
+    expect(options).toContain('米国株式（VTI）');
+    expect(options).toContain('米国債券（BND）');
+    expect(options).not.toContain('米国を除く株式（VXUS）');
   });
 
   it('実行すると POST body と結果が正しい', async () => {
@@ -230,9 +269,11 @@ describe('BacktestScreen', () => {
     const fetchMock = stubFetch();
     const user = userEvent.setup();
     renderWithProvider(<BacktestScreen />);
-    await screen.findByRole('checkbox', { name: /米国株式/ });
-    await user.click(screen.getByRole('checkbox', { name: /米国株式/ }));
-    await user.click(screen.getByRole('checkbox', { name: /米国債券/ }));
+    await screen.findByRole('listbox', { name: /対象資産/ });
+    await user.selectOptions(screen.getByRole('listbox', { name: /対象資産/ }), [
+      'us_equity',
+      'us_bond',
+    ]);
     const equityWeight = screen.getByLabelText(/米国株式.*ウェイト/);
     await user.clear(equityWeight);
     await user.type(equityWeight, '0.2');
@@ -255,6 +296,100 @@ describe('BacktestScreen', () => {
     renderWithProvider(<BacktestScreen />);
     await selectTwoAssetsAndSubmit(user);
     await screen.findByText(/バックテストの実行に失敗しました: データが未取得の資産/);
+  });
+
+  it('リバランス頻度に年次（Y）が選べ、POST body に反映される', async () => {
+    const fetchMock = stubFetch();
+    const user = userEvent.setup();
+    renderWithProvider(<BacktestScreen />);
+    await selectTwoAssetsAndSubmit(user);
+
+    const freqSelect = screen.getByRole('combobox', { name: /リバランス頻度/ });
+    await user.selectOptions(freqSelect, 'Y');
+
+    submitForm();
+    await waitFor(() => {
+      const btCalls = fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes('/backtests'),
+      );
+      const body = JSON.parse(String(btCalls[btCalls.length - 1][1]?.body));
+      expect(body.rebalance_frequency).toBe('Y');
+    });
+  });
+
+  it('保存済み最適化を選択し再最適化にチェックすると POST body に反映される', async () => {
+    const fetchMock = stubFetch();
+    const user = userEvent.setup();
+    // 保存済みの最適化結果（request 付き）を Provider に投入する
+    const saved: StoredResult = {
+      id: 'opt-1',
+      kind: 'optimization',
+      label: '最適化（max_sharpe / mean_historical_return）',
+      executedAt: '2026-08-09T10:00:00.000Z',
+      result: OPTIMIZATION_RESULT,
+      request: {
+        asset_ids: ['us_equity', 'us_bond'],
+        optimization_method: 'max_sharpe',
+        expected_return_method: 'mean_historical_return',
+        covariance_method: 'sample_cov',
+        risk_free_rate: 0,
+        annualization_factor: 252,
+        weight_bounds: [0, 1],
+      },
+    };
+    renderWithProvider(
+      <BacktestScreen />,
+      (providerChildren) => (
+        <CompareProvider>
+          <Seed initial={[saved]} />
+          {providerChildren}
+        </CompareProvider>
+      ),
+    );
+
+    await selectTwoAssetsAndSubmit(user);
+
+    // 保存済み最適化を選択して再最適化を有効化
+    await user.selectOptions(screen.getByRole('combobox', { name: /再最適化元の最適化/ }), 'opt-1');
+    await user.click(screen.getByRole('checkbox', { name: /リバランス時に再最適化/ }));
+
+    submitForm();
+    await waitFor(() => {
+      const btCalls = fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes('/backtests'),
+      );
+      const body = JSON.parse(String(btCalls[btCalls.length - 1][1]?.body));
+      expect(body.reoptimize).toBe(true);
+      expect(body.optimization_params.optimization_method).toBe('max_sharpe');
+    });
+  });
+
+  it('再最適化チェックかつ未選択だとエラー（fetch しない）', async () => {
+    const fetchMock = stubFetch();
+    const user = userEvent.setup();
+    renderWithProvider(<BacktestScreen />);
+    await screen.findByRole('listbox', { name: /対象資産/ });
+    await user.selectOptions(screen.getByRole('listbox', { name: /対象資産/ }), [
+      'us_equity',
+      'us_bond',
+    ]);
+    const equityWeight = screen.getByLabelText(/米国株式.*ウェイト/);
+    await user.clear(equityWeight);
+    await user.type(equityWeight, '0.6');
+    const bondWeight = screen.getByLabelText(/米国債券.*ウェイト/);
+    await user.clear(bondWeight);
+    await user.type(bondWeight, '0.4');
+
+    await user.click(screen.getByRole('checkbox', { name: /リバランス時に再最適化/ }));
+    submitForm();
+
+    await screen.findByText(/再最適化には「再最適化元の最適化」の選択が必要です/);
+    await waitFor(() => {
+      const btCalls = fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes('/backtests'),
+      );
+      expect(btCalls.length).toBe(0);
+    });
   });
 
   it('取得済みの資産が無い場合は警告を表示しフォームを出さない', async () => {

@@ -9,7 +9,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 SeriesType = Literal["price", "adjusted_close", "return", "cumulative"]
-Frequency = Literal["D", "W", "M"]
+Frequency = Literal["D", "W", "M", "Y"]
 
 
 class SeriesSpec(BaseModel):

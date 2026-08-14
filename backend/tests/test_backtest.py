@@ -393,3 +393,136 @@ def test_request_weights_sum_must_be_one() -> None:
             weights={"us_equity": 0.2, "us_bond": 0.2},
             rebalance_frequency="M",
         )
+
+
+# ---------------------------------------------------------------------------
+# 年次リバランス（Y）
+# ---------------------------------------------------------------------------
+
+
+def test_annual_rebalance_fires_once_per_year() -> None:
+    """Y 頻度では各年度の最終観測日をシグナル日とし、翌観測日に約定する。"""
+    # 2022〜2024 にまたがる資産別の営業日価格（各年の 12月末 と 1初 を含む）
+    dates = pd.date_range("2022-12-20", "2024-01-15", freq="B")
+    rng = np.random.default_rng(0)
+    prices = pd.DataFrame(
+        {
+            "us_equity": 100.0 * np.cumprod(1 + rng.normal(0, 0.005, len(dates))),
+            "us_bond": 100.0 * np.cumprod(1 + rng.normal(0, 0.002, len(dates))),
+        },
+        index=dates,
+    )
+
+    params = BacktestParams(
+        weights={"us_equity": 0.5, "us_bond": 0.5},
+        rebalance_frequency="Y",
+        initial_capital=10000.0,
+        cost_rate=0.0,
+    )
+    res = run_backtest(prices, params)
+
+    rebal_trades = [t for t in res.trades if t.date != dates[0].date()]
+    # 2022末→2023 と 2023末→2024 の 2 回の年度末リバランスが約定する
+    # （2024/1/15 までなので 2024末は無い）。
+    years_observed = sorted({t.date.year for t in rebal_trades})
+    assert years_observed == [2023, 2024]
+    # 各リバランスは翌営業日に約定（当年には実行されない）
+    assert all(t.date.month == 1 for t in rebal_trades)
+
+
+# ---------------------------------------------------------------------------
+# リバランス時再最適化（reoptimize）
+# ---------------------------------------------------------------------------
+
+
+def test_reoptimize_produces_weights_by_exec() -> None:
+    """再最適化バックテストが実行日ごとのターゲットウェイトを採用する。"""
+    prices = _make_2asset_prices(rng_seed=3)
+    params = BacktestParams(
+        weights={"us_equity": 0.5, "us_bond": 0.5},
+        rebalance_frequency="M",
+        initial_capital=10000.0,
+        cost_rate=0.0,
+    )
+    res = run_backtest(prices, params, weights_by_exec=_fixed_weights_by_exec(prices, 0.6))
+    # 再最適化で target が変化 → 固定ウェイトより取引が発生（数は同じだが値が異なる）
+    assert res.rebalance_weights is not None
+    assert len(res.rebalance_weights) >= 1
+    # rebalance_weights のウェイトは与えたマップの値に一致
+    assert res.rebalance_weights[0].weights["us_equity"] == pytest.approx(0.6)
+
+
+def _fixed_weights_by_exec(
+    prices: pd.DataFrame, equity_w: float
+) -> dict[pd.Timestamp, dict[str, float]]:
+    """全実行日を同一の (equity_w, 1-equity_w) ターゲットにするダミー再最適化。"""
+    dates = pd.DatetimeIndex(prices.index)
+    signals = []
+    for _, grp in pd.Series(dates, index=dates).groupby(pd.Grouper(freq="ME")):
+        if len(grp) and grp.index[-1] > dates[0]:
+            signals.append(pd.Timestamp(grp.index[-1]))
+    arr = np.asarray(dates, dtype="datetime64[ns]")
+    w = {}
+    for s in signals:
+        nxt = arr[arr > np.datetime64(s)]
+        if len(nxt):
+            w[pd.Timestamp(nxt[0])] = {"us_equity": equity_w, "us_bond": 1 - equity_w}
+    return w
+
+
+def test_reoptimize_lookahead_safe() -> None:
+    """再最適化バックテストでも、シグナル日以降の価格変更が過去結果を変えない。"""
+    from app.optimization.service import rebalance_allocation
+    from app.schemas.optimization import OptimizationRequest
+
+    base = _make_2asset_prices(rng_seed=5)
+    opt = OptimizationRequest(
+        asset_ids=["us_equity", "us_bond"],
+        optimization_method="max_sharpe",
+        expected_return_method="mean_historical_return",
+        covariance_method="sample_cov",
+    )
+    params = BacktestParams(
+        weights={"us_equity": 0.5, "us_bond": 0.5},
+        rebalance_frequency="M",
+        initial_capital=10000.0,
+        cost_rate=0.0,
+    )
+
+    w_base, _ = rebalance_allocation(base, opt, opt.asset_ids, "M")
+    res_base = run_backtest(base, params, weights_by_exec=w_base)
+
+    x_index = 30
+    x_date = _DATES[x_index]
+    perturbed = base.copy()
+    for col in perturbed.columns:
+        perturbed.loc[perturbed.index >= x_date, col] = perturbed.loc[
+            perturbed.index >= x_date, col
+        ] * 1.5
+    w_pert, _ = rebalance_allocation(perturbed, opt, opt.asset_ids, "M")
+    res_pert = run_backtest(perturbed, params, weights_by_exec=w_pert)
+
+    base_pre = [p for p in res_base.equity_curve if p.date < x_date.date()]
+    pert_pre = [p for p in res_pert.equity_curve if p.date < x_date.date()]
+    assert len(base_pre) == len(pert_pre)
+    for a, b in zip(base_pre, pert_pre, strict=True):
+        assert float(a.value) == pytest.approx(float(b.value), abs=1e-6)
+
+
+def test_reoptimize_failure_continues_with_warning() -> None:
+    """再最適化が失敗した時点はスキップし、警告が積まれる（直前ウェイト継続）。"""
+    from app.optimization.service import rebalance_allocation
+    from app.schemas.optimization import OptimizationRequest
+
+    prices = _make_2asset_prices(rng_seed=7)
+    opt = OptimizationRequest(
+        asset_ids=["us_equity", "us_bond"],
+        optimization_method="efficient_return",
+        expected_return_method="ema_historical_return",
+        covariance_method="sample_cov",
+        target_return=1.0,  # 達成不能 → 全シグナルで失敗のはず
+    )
+
+    weights, warnings = rebalance_allocation(prices, opt, opt.asset_ids, "M")
+    assert weights == {}
+    assert any("失敗" in w for w in warnings)

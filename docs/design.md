@@ -2,7 +2,7 @@
 
 この文書は実装上の設計判断を記録する。詳細な金融モデル仕様・データソース選定はここに集約する。実装の進め方・ガイドラインは `CLAUDE.md` を参照（矛盾する場合はユーザーの最新指示を優先し、本メモを更新する）。
 
-**ステータス**: 初期ひな型（スケルトン）構築完了。Yahoo データ取得 CLI（fetch → raw → normalize → processed → export-csv）実装完了。データ確認 GUI 第1弾（`/api/data/series` 配線・`/api/assets` の data_status・データ画面）実装完了。**最適化サービス（PyPortfolioOpt・`static_allocation`）・最適化 API（`POST /api/optimizations`）・最適化画面（GUI）、分析 API（`GET /api/data/analysis`）と分析画面、バックテスト（固定ウェイト・`POST /api/backtests`・バックテスト画面）、`app/domain/returns.py` のローリングボラ・相関行列**を実装済み。rebalance_allocation（再最適化）、バックテスト実行結果の再現可能な保存（runs/jobs 配線）、API/GUI からのデータ取得（data_fetch）配線は未実装。
+**ステータス**: 初期ひな型（スケルトン）構築完了。Yahoo データ取得 CLI（fetch → raw → normalize → processed → export-csv）実装完了。データ確認 GUI 第1弾（`/api/data/series` 配線・`/api/assets` の data_status・データ画面）実装完了。**最適化サービス（PyPortfolioOpt・`static_allocation`）・最適化 API（`POST /api/optimizations`）・最適化画面（GUI）、分析 API（`GET /api/data/analysis`）と分析画面、バックテスト（固定ウェイト・`POST /api/backtests`・バックテスト画面）、`app/domain/returns.py` のローリングボラ・相関行列、比較・保存画面**を実装済み。**再最適化（`rebalance_allocation`・バックテストの `reoptimize`）、年次（Y）リバランス、最適化結果の個別資産リターン/リスク、対象資産UI統一**も実装済み。未実装は、バックテスト実行結果の再現可能な保存（runs/jobs 配線）、API/GUI からのデータ取得（data_fetch）配線、Black-Litterman。
 
 ---
 
@@ -52,7 +52,7 @@ backend/
     cli.py            # fetch / export-csv サブコマンドの argparse CLI
     __main__.py       # python -m app / -m app.cli 両対応
     optimization/
-      service.py    # static_allocation 実装済み（rebalance_allocation は未実装）
+      service.py    # static_allocation と rebalance_allocation 実装済み
     backtest/
       engine.py     # スタブ（後続）
     schemas/        # Pydantic モデル（asset / dataseries / series / analysis / optimization / job）
@@ -236,13 +236,13 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
 ### 7.1 最適化サービス（`app/optimization/`・実装済み）
 
 - **`app/optimization/service.py`**: HTTP・DB に依存しない純粋な計算層。`static_allocation(prices, params, *, benchmark=None) -> OptimizationResult` を提供（静的エイリアス `optimize`）。入力は **price 系列**（列=資産、行=日次調整済み終値）。`returns_data=False` を貫き、リターン系列と混同しない。ルックアヘッド回避（リバランス時点より後を使わない）は**呼び出し側で保証された入力 series を前提**とし、サービス自体は時系列スライスを行わない。
+- **`rebalance_allocation`（再最適化・実装済み）**: `app/optimization/service.py::rebalance_allocation(prices, params, asset_ids, rebalance_frequency) -> (weights_by_exec, warnings)`。各シグナル日（D/W/M/Y の最終観測日）まで `prices.loc[:sig]` にスライスして `static_allocation` を実行し、`clean_weights` を実行日（=翌観測日）のターゲットにする。**スライスによりシグナル日以降のデータを使わないためルックアヘッドを構造的に回避**（`static_allocation` はスライスしない設計を維持）。最適化失敗時点はスキップし**直前のウェイト継続＋日本語警告**（ユーザー決定）。対象資産は `asset_ids` で指定（保存済み最適化の再現パラメータから渡す）。
 - **`app/schemas/optimization.py`**: `StaticAllocationParams`（入力）と `OptimizationResult`（結果）の型契約。
   - 入力: `optimization_method`（max_sharpe / min_volatility / efficient_risk / efficient_return）、`expected_return_method`（mean_historical_return / capm_return / ema_historical_return）、`covariance_method`（sample_cov / semicovariance / ledoit_wolf）、`risk_free_rate`、`annualization_factor`（既定252）、`weight_bounds`（既定0–1）、`asset_weight_bounds`（資産別上書き）、`target_return` / `target_volatility`（手法に応じ必須）。
-  - 結果: **生ウェイト `weights`（丸め前）＋表示用 `clean_weights`（丸め後）を併記**。`metrics`（年率リターン・年率ボラ・Sharpe）、`params`、`warnings`。CLAUDE.md「重みは丸める前の値を保存し、表示用に丸める」に従う。
+  - 結果: **生ウェイト `weights`（丸め前）＋表示用 `clean_weights`（丸め後）を併記**。`metrics`（年率リターン・年率ボラ・Sharpe・**個別資産の年率リターン `asset_returns`・年率ボラ `asset_volatilities`**）、`params`、`warnings`。`asset_returns`/`asset_volatilities` は最適化に使った推定（`mu`・`sqrt(diag(sigma))`）から算出し、選択した期待リターン方式・共分散方式と一致する。CLAUDE.md「重みは丸める前の値を保存し、表示用に丸める」に従う。
 - **入力検証・エラー方針**: 空データ・非正価格（0以下）・観測不足（2時点未満）・資産不足（2資産未満）・ベンチマーク欠如（capm）は、握りつぶさず `OptimizationInputError`（日本語メッセージ、内部例外は `origin` に保持）で返す。solver 失敗（`OptimizationError`）も制約矛盾・データ不足・推定不安定として説明可能なエラーに変換。NaN は全列 NaN 行の除外（警告）と、中途欠損は PyPortfolioOpt 内部の前fill（警告）で扱い、値自体を推測補完しない。
 - **推定**: `expected_returns.mean_historical_return` / `capm_return`（ベンチマークは Series→DataFrame 化して渡す、`returns_data=False`）/ `ema_historical_return`、`risk_models.sample_cov` / `semicovariance` / `CovarianceShrinkage.ledoit_wolf()`。
-- **バックテスト（将来の再最適化リバランス指針）**: 固定ウェイトのバックテストは §7.3 で実装済み。将来 `rebalance_allocation`（再最適化）を導入する際は、学習期間（lookback）を明示し、各リバランス時点で未来情報を入力に使わない（`prices.loc[:signal]` スライスをシグナル日決定期に組み込む）。リターン指標の定義（Sharpe / Sortino / Calmar の分母、無リスク金利、年率換算頻度、ゼロ除算）は §7.3 に固定済み。
-- **再現性**: 入力期間・使用データ・推定方法・全パラメータ・目的関数・結果・警告・設定・データバージョン・コードバージョン・実行時刻を保存。固定データの未来部分を変更しても過去のバックテスト結果が変わらないことを検証するテストを用意する。
+- **再現性**: 入力期間・使用データ・推定方法・全パラメータ・目的関数・結果・警告・設定・データバージョン・コードバージョン・実行時刻を保存。固定データの未来部分を変更しても過去のバックテスト結果が変わらないことを検証するテストを用意する（再最適化時も `tests/test_backtest.py` で検証済み）。
 - 高い成績を「最適」や「将来も有効」と表現しない。
 
 ### 7.2 最適化 API（`POST /api/optimizations`・実装済み）
@@ -259,10 +259,11 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
 
 ### 7.3 バックテスト（固定ウェイト・実装済み）
 
-- **方針（ユーザー決定）**: リバランス配分は**固定ウェイト**のみ（各リバランス時点でユーザー指定のウェイトに戻す）。`rebalance_allocation`（再最適化）は将来の別機能として残す。実装はエンジン + 同期 API + 画面（GUI）の3層で完結。
-- **エンジン** `app/backtest/engine.py`: `run_backtest(prices, params, *, currency="") -> BacktestResult`。HTTP・DB 非依存の純粋計算。`BacktestInputError(ValueError)`（message + origin）でエラーを表現。
+- **方針（ユーザー決定）**: リバランス配分は**固定ウェイト**（既定）または**再最適化**（`reoptimize=True` で比較一覧の保存済み最適化アルゴリズムを使う）を選択できる。実装はエンジン + 同期 API + 画面（GUI）の3層で完結。
+- **エンジン** `app/backtest/engine.py`: `run_backtest(prices, params, *, currency="", weights_by_exec=None) -> BacktestResult`。HTTP・DB 非依存の純粋計算。`BacktestInputError(ValueError)`（message + origin）でエラーを表現。
   - **入力**: 価格行列（列=資産、行=日次 adjusted_close、DatetimeIndex）。全資産が有効価格を持つ観測日のみに絞る（NaN 行は除外し警告。推測補完しない）。
-  - **リバランス**: 約定日 = **シグナル日の翌観測日**（次営業日約定）。シグナル日は D では全観測日（初日除く）、W/M では各期間の最終観測日（`pd.Grouper` の pandas 既定アンカー、`resample_*` と同じ規則）。初日 t0 は初期投資（リバランスではない）。**ルックアヘッド回避は「シグナル日で確定 → 翌観測日約定」の構造で保証**され、未来データ混入検知テスト（`tests/test_backtest.py`）で検証する。
+  - **リバランス**: 約定日 = **シグナル日の翌観測日**（次営業日約定）。シグナル日は D では全観測日（初日除く）、W/M/Y では各期間（週/月/年）の最終観測日（`pd.Grouper` の pandas 既定アンカー、`resample_*` と同じ規則）。初日 t0 は初期投資（リバランスではない）。**ルックアヘッド回避は「シグナル日で確定 → 翌観測日約定」の構造で保証**され、未来データ混入検知テスト（`tests/test_backtest.py`）で検証する。
+  - **再最適化**: `weights_by_exec`（実行日→ターゲットウェイト）を渡すと各実行日で異なるターゲットへリバランスする（固定ウェイトは省略で従来挙動）。実行日に対応するウェイトが無い時点は**直前のウェイトを継続**してリバランスしない（再最適化失敗時と同じ継続ロジック）。
   - **売買コスト**: `cost_rate`（両建てレッグ通貨ベース）。各リバランスで `delta_value = target - market_value`、`fee = cost_rate*Σ|delta|`。初期アロケーションにも同率賦課し取引一覧に記録。
   - **評価指標**（`BacktestMetrics`・年率換算 `annualization_factor` 注入）:
     - cumulative_return = `equity_end / initial_capital - 1`・annual_return = `annualize_return(geometric)`
@@ -271,11 +272,12 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
     - calmar = `annual / |max_drawdown|`・max_drawdown = `min(equity/equity.cummax()-1)`（負値）
     - win_rate = `count(r>0)/count(|r|>1e-12)`・turnover = 年率回転率（0.5×Σ|delta|/V の通算を年数で除算）・total_fees
     - **未定義（観測不足・ゼロ除算）は `null`**（`float | None`）。フロントでは「—」表示。
-- **lookback**: `BacktestParams` に保持（既定 252・`ge=1`）し params echo に含めるが、固定ウェイトでは**エンジンは未使用**（将来の rebalance_allocation 用の予約パラメータ）。UI には表示しない。
-- **スキーマ** `app/schemas/backtest.py`: `BacktestParams`（weights / rebalance_frequency / initial_capital / cost_rate / risk_free_rate / annualization_factor / lookback）・`BacktestRequest`（asset_ids/start/end 継承・`model_validator` で weights キー=asset_ids）・`BacktestMetrics`（`float | None`）・`EquityPoint`・`Trade`・`AllocationPoint`・`YearlyPerformance`・`BacktestResult`（params echo・warnings）。
-- **API** `app/api/routes/backtests.py`: `POST /api/backtests` 同期。`load_price_matrix` で価格行列（未取得資産は 400 で明示）→ `run_backtest` → `BacktestInputError` は 400（日本語）。スキーマ検証違反（ウェイト合計・キー不一致）は 422。
-- **GUI** `frontend/src/pages/BacktestScreen.tsx`: 対象資産（チェックボックス・取得済みのみ）・資産ごと固定ウェイト（number input・合計をリアルタイム表示）・リバランス頻度・初期資金・コスト率・リスクフリー金利・期間を入力。結果表示は評価指標表（`null` は「—」）・累積資産折れ線・ドローダウン折れ線・年次成績表・配分推移折れ線・取引一覧（直近200件）・params echo・免責表示（Recharts・`.opt-form`/`.result-table`）。
-- **テスト**: `tests/test_backtest.py`（16件: 単一/2資産・次営業日約定・コスト/回転率・指標手計算・**バイアス検知**（未来データ変更で過去 equity/drawdown/trades が不変）・中途終了が全期間の prefix・エラー/警告/null）・`tests/test_backtests_api.py`（8件: 200・JSONにNaN無し・400・422）・`BacktestScreen.test.tsx`（5件）。
+- **lookback**: `BacktestParams` に保持（既定 252・`ge=1`）し params echo に含めるが、固定ウェイトでは**エンジンは未使用**（再最適化の学習窓としては現状「開始日/データ冒頭からリバランス日まで」を採用し、lookback は将来の予約パラメータ）。UI には表示しない。
+- **再最適化ロジック** `app/optimization/service.py::rebalance_allocation`: 各シグナル日 `s` まで `prices.loc[:s]` にスライスして `static_allocation` を実行し、`clean_weights` をその実行日のターゲットにする。**スライスによりシグナル日以降のデータを使わないため、ルックアヘッドを構造的に回避**する（`static_allocation` は内部で時系列スライスしない設計を維持）。最適化に失敗（データ不足・達成不能な目標値）した時点はスキップし、**直前のウェイトを継続**＋日本語警告を積む（ユーザー決定）。
+- **スキーマ** `app/schemas/backtest.py`: `BacktestParams`（weights / rebalance_frequency / initial_capital / cost_rate / risk_free_rate / annualization_factor / lookback / **reoptimize** / **optimization_params**）・`BacktestRequest`（asset_ids/start/end 継承・`model_validator` で weights キー=asset_ids・`reoptimize=True` では `optimization_params` 必須）・`BacktestMetrics`（`float | None`）・`EquityPoint`・`Trade`・`AllocationPoint`・`YearlyPerformance`・`BacktestResult`（params echo・warnings・**rebalance_weights**）。
+- **API** `app/api/routes/backtests.py`: `POST /api/backtests` 同期。`load_price_matrix` で価格行列（未取得資産は 400 で明示）→ `reoptimize=True` なら `rebalance_allocation` で `weights_by_exec` を構築（最適化対象資産が未取得なら 400）→ `run_backtest` → `BacktestInputError` は 400（日本語）。スキーマ検証違反（ウェイト合計・キー不一致）は 422。
+- **GUI** `frontend/src/pages/BacktestScreen.tsx`: 対象資産（**最適化と同じ multi-select ドロップダウン**・取得済みのみ）・資産ごと固定ウェイト（number input・合計をリアルタイム表示）・リバランス頻度（日次/週次/月次/**年次**）・初期資金・コスト率・リスクフリー金利・期間・**再最適化元の最適化（比較一覧から選択）**・**リバランス時に再最適化チェック**を入力。結果表示は評価指標表（`null` は「—」）・累積資産折れ線・ドローダウン折れ線・年次成績表・配分推移折れ線・**リバランス時の採用ウェイト表（再最適化時）**・取引一覧（直近200件）・params echo・免責表示（Recharts・`.opt-form`/`.result-table`）。
+- **テスト**: `tests/test_backtest.py`（20件: 単一/2資産・次営業日約定・コスト/回転率・指標手計算・**バイアス検知**（未来データ変更で過去 equity/drawdown/trades が不変・再最適化時も）・中途終了が全期間の prefix・年次頻度・再最適化の採用ウェイト/失敗時継続・エラー/警告/null）・`tests/test_backtests_api.py`（11件: 200・JSONにNaN無し・400・422・年次・再最適化）・`BacktestScreen.test.tsx`（8件）。
 - **既知の制約**: 「実行結果の再現可能な保存」（スナップショット・コードバージョン永続化）は今回スコープ外。params echo と固定データにより手動再現は可能。runs/jobs への配線は未実施（メモリ内プレースホルダーのまま）。
 
 ## 8. API 設計（初期スケジュール）
@@ -311,8 +313,8 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
 | 4資産の既定ティッカー | **VTI / AGG / VXUS / IAGG（Yahoo 取得で確認済み）** | コードに固定せず設定で変更可能（`assets.default.json`） |
 | `ex_us_bond` の対象指数・為替方針 | IAGG（USD建て・unhedged）。2015年設立のため履歴は 2015-11〜 | 国際債券ETFの為替ヘッジ有無と対象指数を確認 |
 | 履歴長・共通履歴開始日 | 実取得時の meta.firstTradeDate / regularMarketTime で確認可能 | fetch 実行後に決定し画面表示 |
-| 最適化実ロジック | **実装済み**（`app/optimization/`・`static_allocation`。固定値テストで検証）。**API 配線済み**（`POST /api/optimizations`） | rebalance_allocation・最適化画面（GUI）・互換性表 |
-| バックテスト実ロジック | **実装済み**（`app/backtest/engine.py`・固定ウェイト。`POST /api/backtests`・`BacktestScreen` 配線済み） | rebalance_allocation（再最適化リバランス）・実行結果の永続化 |
+| 最適化実ロジック | **実装済み**（`app/optimization/`・`static_allocation`・`rebalance_allocation`。固定値テストで検証）。**API 配線済み**（`POST /api/optimizations`）・**最適化画面（GUI）実装済み**・個別資産リターン/リスクも結果に含む | 互換性表 |
+| バックテスト実ロジック | **実装済み**（`app/backtest/engine.py`・固定ウェイト＋再最適化。`POST /api/backtests`・`BacktestScreen` 配線済み） | 実行結果の永続化 |
 | 年率換算・カレンダー規則の詳細 | **実装済み**（`app/domain/returns.py`＋固定値テスト。年率リターンは geometric 既定、年率ボラティリティは `std(ddof=1)×√factor`、`factor=252` 引数注入） | 週次 `'W'` のアンカーと週次複利の偶発的欠損の扱い |
 | バックテスト指標の詳細定義 | **実装済み・記録済み**（§7.3 に数式を固定。Sharpe/Sortino/Calmar 分母・ゼロ除算は null で表現） | 変化なし |
 | 過去データの将来変更要テスト（バイアス検査） | **実装済み**（`test_backtest.py` の `test_future_price_change_does_not_alter_past_results`・`test_truncated_run_is_prefix_of_full_run`） | 変化なし |
@@ -331,3 +333,4 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
 - **2026-08-10** — リターン/リスク表示と `efficient_return` の限界調査。`app/domain/returns.py` に `ema_annual_return`・`sharpe_ratio`・`return_stats` を追加し、`GET /api/data/analysis` の `stats` フィールド（`AssetStats`）として資産ごとの平均/EMA 年率リターン・年率ボラ・シャープを返すようにした（リスクフリー金利は既定 0.0・UI に明示）。分析画面に統計表を追加。最適化画面は選択中リターン方式（平均/EMA）を日本語ラベルで明示し、`efficient_return` の限界値についてヒントを追加。
 - **`efficient_return` の限界挙動（調査結論）**: PyPortfolioOpt の `efficient_return` は min-vol を目的関数とし、`ret >= target_return` の**不等式制約**で解く。上限判定 `_max_return_value` は「weight_bounds 内で単一資産に全振りしたときの最大期待リターン」で、これを超えると `ValueError`（日本語 400 に変換）。対象が単一資産 100% になるのは目標リターンが `_max_return_value` に**等しい場合のみ**で、わずかに下回ると min-vol 目的のため分散的に複数資産へ逃げる。実データ（EMA）では `ex_us_equity`（VXUS）の EMA 期待リターン ≈ 0.2559 が最大で、0.255 では VXUS/VTI に分散する（これが観察された挙動）。これはエンジンの正しい限界であり、回避策として限界値を UI に明示した（将来は上限バリデーションや上限値の事前表示を検討）。
 - **2026-08-10** — 既定ティッカーを変更（ユーザー指示）。米国債券 `BND`→`AGG`（iShares Core U.S. Aggregate Bond、同一 Bloomberg US Agg Index、2003-09〜・5751行）、米国を除く債券 `BNDX`→`IAGG`（iShares Core International Aggregate Bond、同一 Bloomberg Global Agg ex-USD Index、USD建て・unhedged を継続）。Yahoo chart API で取得可能性・データ品質（欠損0・重複0）を確認後、`assets.default.json` を更新し `fetch` で再取得。全機能（assets / series / analysis / optimizations / backtests）を統合テストで確認（すべて 200、最適化・バックテストの指標は意味のある値）。**`ex_us_bond` の履歴は 2013-06（BNDX）→ 2015-11（IAGG）に短縮**（IAGG は2015年設立のため）。これは機能の欠落ではなく利用可能期間の変化。「4資産を揃えた分析・最適化」は2015年以降に限定される点に注意。
+- **2026-08-15** — バックテスト・最適化画面を拡張（6要件）。①バックテストの対象資産選択を最適化と同じ multi-select ドロップダウンに統一。②最適化画面の `efficient_return` の「目標リターンは最適化に使う…」説明文を削除（目標値入力は残す）。③最適化結果に個別資産の年率リターン/リスクを追加（`OptimizationMetrics` の `asset_returns`/`asset_volatilities`、最適化に使った `mu`・`sqrt(diag(sigma))` から算出）し、最適化画面に資産別統計表を表示。④保存済み最適化（`StoredResult.request` に `OptimizationRequest` を保持）をバックテストから選択して呼び出し可能に。⑤リバランス頻度に年次（`Y`、年度末シグナル・翌観測日約定）を追加。⑥「リバランス時に再最適化」チェックで `rebalance_allocation`（各シグナル日まで `prices.loc[:sig]` スライス）により再最適化。失敗時は**直前ウェイト継続＋日本語警告**（ユーザー決定）。`_simulate` を実行日→ウェイト（`weights_by_exec`）対応に拡張し、`BacktestParams` に `reoptimize`/`optimization_params`、`BacktestResult` に `rebalance_weights` を追加。再最適化時もルックアヘッド検査テストで検証。バックテストのエンジン・スキーマ・API・GUI・テスト（backend 145件・frontend 32件 green）を更新。

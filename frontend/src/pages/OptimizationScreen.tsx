@@ -328,11 +328,6 @@ export function OptimizationScreen() {
                     onChange={(e) => update('targetReturn', e.target.value)}
                   />
                 </label>
-                <span className="hint-text">
-                  目標リターンは、最適化に使う「{EXPECTED_RETURN_LABELS[form.expectedReturnMethod]}」で
-                  期待リターンが最も高い資産の値（効率フロンティアの上限）を超えるとエラーになります。
-                  限界値ちょうどでは最高リターン資産に集中し、わずかに下回ると複数資産に分散されます。
-                </span>
               </>
             )}
 
@@ -407,6 +402,8 @@ export function OptimizationScreen() {
                       periodStart: form.start || undefined,
                       periodEnd: form.end || undefined,
                       result,
+                      // バックテストの再最適化で再現するためのリクエストを保持する。
+                      request: buildRequest(form),
                     } satisfies StoredResult);
                     setAdded(true);
                     window.setTimeout(() => setAdded(false), 2000);
@@ -444,6 +441,34 @@ export function OptimizationScreen() {
                 </table>
               ) : (
                 <p className="warning-text">表示できるウェイトがありません。</p>
+              )}
+
+              <h4>個別資産のリターン・リスク（年率）</h4>
+              {Object.keys(result.metrics.asset_returns ?? {}).length > 0 ? (
+                <table className="result-table">
+                  <thead>
+                    <tr>
+                      <th>資産</th>
+                      <th>年率リターン（期待）</th>
+                      <th>年率ボラティリティ（リスク）</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.keys(result.metrics.asset_returns)
+                      .sort()
+                      .map((assetId) => (
+                        <tr key={assetId}>
+                          <td>{assetLabel(assetId, assets?.assets)}</td>
+                          <td>{(result.metrics.asset_returns[assetId] * 100).toFixed(2)}%</td>
+                          <td>
+                            {(result.metrics.asset_volatilities[assetId] * 100).toFixed(2)}%
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              ) : (
+                <p className="warning-text">表示できる個別資産の統計がありません。</p>
               )}
 
               <h4>指標（年率）</h4>

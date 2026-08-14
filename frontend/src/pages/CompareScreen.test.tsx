@@ -19,6 +19,8 @@ const OPTIMIZATION_RESULT: OptimizationResponse = {
     expected_annual_return: 0.08,
     annual_volatility: 0.05,
     sharpe_ratio: 1.6,
+    asset_returns: { us_equity: 0.12, us_bond: 0.03 },
+    asset_volatilities: { us_equity: 0.19, us_bond: 0.05 },
   },
   params: {
     optimization_method: 'max_sharpe',

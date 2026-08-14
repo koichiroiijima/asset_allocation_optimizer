@@ -30,8 +30,9 @@ def _mean(returns: pd.Series) -> float | None:
     return float(clean.mean())
 
 
-# pandas 2.2 以降は "M"（MonthEnd）→ "ME" へ改名されたため明示的に "ME" を使う。
-_FREQ_MAP: dict[Frequency, str] = {"D": "D", "W": "W", "M": "ME"}
+# pandas 2.2 以降は "M"（MonthEnd）→ "ME"、「年度末（A=calendar年終了）」→ "YE" へ
+# 改名されたため明示的に "ME"/"YE" を使う。'Y' は年度終了（YearEnd）を表す。
+_FREQ_MAP: dict[Frequency, str] = {"D": "D", "W": "W", "M": "ME", "Y": "YE"}
 
 
 def simple_return(prices: pd.Series) -> pd.Series:

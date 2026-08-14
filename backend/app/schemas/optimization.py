@@ -78,11 +78,17 @@ class OptimizationRequest(StaticAllocationParams):
 
 
 class OptimizationMetrics(BaseModel):
-    """最適配分の期待値指標（年率換算）。"""
+    """最適配分の期待値指標（年率換算）。
+
+    `asset_returns` / `asset_volatilities` は個別資産ごとの年率期待リターン／年率ボラ
+    （最適化に使った期待リターン推定 `mu` と共分散 `sigma` の対角から算出）。
+    """
 
     expected_annual_return: float
     annual_volatility: float
     sharpe_ratio: float
+    asset_returns: dict[str, float] = Field(default_factory=dict)
+    asset_volatilities: dict[str, float] = Field(default_factory=dict)
 
 
 class OptimizationResult(BaseModel):

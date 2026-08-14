@@ -2,7 +2,7 @@
 
 このファイルはアセット配分最適化アプリの実装進捗を追跡する。実装状況の詳細（設計判断・決定履歴）は [`design.md`](design.md)、利用方法は [`README.md`](../README.md)、進め方の指針は [`CLAUDE.md`](../CLAUDE.md) を参照。
 
-最終更新: 2026-08-09
+最終更新: 2026-08-15
 
 ## 凡例
 
@@ -56,8 +56,9 @@
 
 - [x] PyPortfolioOpt 最適化サービスと単体テスト（`static_allocation`）
 - [x] 最適化 API ルート配線（`POST /api/optimizations` 同期エンドポイント＋API テスト、`OptimizationRequest` の `start`/`end` でルックアヘッド回避）
-- [x] 最適化画面・GUI（手法 / 期待リターン / 共分散 / 期間 / リスクフリー金利 / ウェイト上下限の入力と結果表示）— `POST /api/optimizations` を配線、`frontend/src/pages/OptimizationScreen.tsx` + テスト（`OptimizationScreen.test.tsx` 5件）。capm_return はベンチマーク非対応のため選択肢除外、efficient_return/efficient_risk は目標値を条件表示、クライアント側検証でサーバー422に依存しない
-- [ ] rebalance_allocation（リバランス最適化）の実装
+- [x] 最適化画面・GUI（手法 / 期待リターン / 共分散 / 期間 / リスクフリー金利 / ウェイト上下限の入力と結果表示）— `POST /api/optimizations` を配線、`frontend/src/pages/OptimizationScreen.tsx` + テスト（`OptimizationScreen.test.tsx` 7件）。capm_return はベンチマーク非対応のため選択肢除外、efficient_return/efficient_risk は目標値を条件表示、クライアント側検証でサーバー422に依存しない
+- [x] `rebalance_allocation`（リバランス最適化）の実装 — `app/optimization/service.py`。各リバランスシグナル日まで `prices.loc[:sig]` にスライスして `static_allocation` を実行（ルックアヘッド回避）。失敗時は直前ウェイト継続＋日本語警告。バックテスト API の `reoptimize` / `optimization_params` から呼び出し
+- [x] 個別資産のリターン・リスク（最適化結果）— `OptimizationMetrics` に `asset_returns` / `asset_volatilities`（最適化に使った `mu`・`sqrt(diag(sigma))` から算出）を追加、最適化画面に資産別統計表を表示
 - [ ] 互換性表・入力範囲・既定値のスキーマ共用
 - [ ] Black-Litterman アロケーションの実装（**バックテスト・rebalance_allocation 等の残件完了後に着手**）
 
@@ -78,17 +79,19 @@
 
 - [x] ルックアヘッド回避のバックテストエンジン（`app/backtest/engine.py`・`run_backtest`。約定日=シグナル日の翌観測日で構造的に回避）
 - [x] 評価指標（累積/年率リターン・ボラ・Sharpe/Sortino/Calmar・最大ドローダウン・勝率・回転率・手数料。未定義は null）
-- [x] シグナル日と約定日の分離（次営業日約定。D は全観測日、W/M は各期間の最終観測日）
+- [x] シグナル日と約定日の分離（次営業日約定。D は全観測日、W/M/Y は各期間の最終観測日）
 - [x] 未来データ混入を検出するバイアス検査テスト（`test_backtest.py`：未来データ変更で過去 equity/drawdown/trades が不変・中途終了が全期間の prefix）
+- [x] 年次（Y）リバランス頻度 — `RebalanceFrequency` に `"Y"`（年度末シグナル・翌観測日約定）を追加
+- [x] リバランス時再最適化 — `_simulate` を実行日→ウェイト（`weights_by_exec`）対応に拡張。`BacktestParams` に `reoptimize` / `optimization_params`、`BacktestResult` に `rebalance_weights` を追加。再最適化は `rebalance_allocation`（各シグナル日までスライス）で実行し、失敗時は直前ウェイト継続＋日本語警告。ルックアヘッド検査テスト（再最適化時）追加
 - [ ] 実行結果の再現可能な保存（スナップショット・設定・コードバージョンの永続化。現状は params echo で手動再現のみ。`/api/runs` 配線も未実施）
 
-  API・GUI 配線: `POST /api/backtests`（`app/api/routes/backtests.py`・スキーマ `app/schemas/backtest.py`）・バックテスト画面（`BacktestScreen.tsx`、累積資産/ドローワウン/配分推移折れ線・指標表・年次成績・取引一覧・免責表示）。テスト `test_backtests_api.py`（8件）・`BacktestScreen.test.tsx`（5件）。
+  API・GUI 配線: `POST /api/backtests`（`app/api/routes/backtests.py`・スキーマ `app/schemas/backtest.py`）・バックテスト画面（`BacktestScreen.tsx`、累積資産/ドローワウン/配分推移折れ線・指標表・年次成績・取引一覧・免責表示・リバランス時採用ウェイト）。対象資産は最適化と同じ multi-select ドロップダウン。テスト `test_backtests_api.py`（11件）・`BacktestScreen.test.tsx`（8件）。
 
 ## 画面（分析以降）
 
 - [x] 分析画面（価格推移・累積リターン・ローリングボラ・相関ヒートマップ・リターン/リスク統計表）— `GET /api/data/analysis`（`app/api/routes/analysis.py` / `app/schemas/analysis.py`）を配線、`app/api/route_helpers.py` の `load_price_matrix` で複数資産を外側 union 整列、未取得資産は除外して日本語警告、`frontend/src/hooks/useAnalysis.ts` + `src/api/client.ts` の `getAnalysis` と連携。リターン/リスク統計表（平均リターン・EMA リターン・年率ボラ・シャープ、`analysis.stats`）を追加
-- [x] 最適化画面（手法・期間・制約の入力と結果表示）— `POST /api/optimizations` を配線。対象資産（取得済みのみ・複数選択）・手法・期待リターン（capm_return はベンチマーク非対応のため除外）・共分散・期間・リスクフリー金利・ウェイト上下限・年率換算係数を入力、`efficient_return`/`efficient_risk` では目標値を条件表示。クライアント側検証（資産2件・ウェイト上下限・目標値必須）と結果表（clean_weights・指標・warnings）を実装。`.opt-form` / `.result-table` を使用。テスト `OptimizationScreen.test.tsx`（5件）付き
-- [x] バックテスト画面（固定ウェイト・リバランス頻度・初期資金・コスト入力、累積資産/ドローワウン/配分推移の折れ線・評価指標・年次成績・取引一覧・免責表示）— `POST /api/backtests` を配線、`BacktestScreen.tsx` + テスト（`BacktestScreen.test.tsx` 5件）
+- [x] 最適化画面（手法・期間・制約の入力と結果表示）— `POST /api/optimizations` を配線。対象資産（取得済みのみ・複数選択）・手法・期待リターン（capm_return はベンチマーク非対応のため除外）・共分散・期間・リスクフリー金利・ウェイト上下限・年率換算係数を入力、`efficient_return`/`efficient_risk` では目標値を条件表示。結果に個別資産のリターン/リスク表（`metrics.asset_returns` / `asset_volatilities`）を表示。クライアント側検証（資産2件・ウェイト上下限・目標値必須）と結果表（clean_weights・指標・warnings）を実装。`.opt-form` / `.result-table` を使用。テスト `OptimizationScreen.test.tsx`（7件）付き
+- [x] バックテスト画面（固定ウェイト・リバランス頻度・初期資金・コスト入力、累積資産/ドローワウン/配分推移の折れ線・評価指標・年次成績・取引一覧・免責表示）— `POST /api/backtests` を配線。対象資産は最適化と同じ multi-select ドロップダウン。リバランス頻度に年次（Y）を追加。比較一覧の保存済み最適化からアルゴリズムを選択し「リバランス時に再最適化」で再最適化（各シグナル日までで最適化、失敗時は直前ウェイト継続）。再最適化時は採用ウェイト表を表示。`BacktestScreen.tsx` + テスト（`BacktestScreen.test.tsx` 8件）
 - [x] 比較・保存画面（複数結果の比較、JSON / CSV エクスポート）— `CompareScreen.tsx`・`compare/CompareContext.tsx`（最適化・バックテスト結果を「比較に追加」でグローバル保持、最大50件・メモリ保持）。種別ごとの指標比較（最良値強調・nullは「—」）、ラベル編集・削除、JSON / CSV エクスポート（Blob ダウンロード）。テスト `CompareScreen.test.tsx`（6件）
 
 ## 仕上げ

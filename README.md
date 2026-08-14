@@ -98,7 +98,7 @@ CLAUDE.md の API 設計に基づく初期エンドポイント。**最適化は
 | `GET` | `/api/data/series` | 正規化済み系列（価格・リターン・累積、D/W/M 再サンプリング、NaN 除外） | 実装済み（processed に配線） |
 | `GET` | `/api/data/analysis` | 分析画面用データ（複数資産の価格・累積リターン・ローリングボラ・相関） | 実装済み（未取得資産は除外して警告） |
 | `POST` | `/api/optimizations` | 最適化（`static_allocation`）の同期実行 | 実装済み（`start`/`end` でルックアヘッド回避） |
-| `POST` | `/api/backtests` | バックテスト（固定ウェイト・リバランス）の同期実行 | 実装済み（次営業日約定でルックアヘッド回避） |
+| `POST` | `/api/backtests` | バックテスト（固定ウェイト/再最適化・リバランス）の同期実行 | 実装済み（次営業日約定でルックアヘッド回避・`reoptimize` 対応） |
 | `POST` | `/api/jobs` | ジョブ作成（`data_fetch` / `optimization` / `backtest`） | 骨格のみ（実処理は未配線） |
 | `GET` | `/api/jobs/{job_id}` | ジョブ状態（queued/running/succeeded/failed/cancelled） | 骨格のみ（メモリ内） |
 | `POST` | `/api/jobs/{job_id}/cancel` | 実行中ジョブのキャンセル | 骨格のみ |
@@ -188,7 +188,7 @@ curl -X POST http://localhost:8000/api/optimizations \
 
 ## バックテスト API（`POST /api/backtests`）
 
-固定ウェイトでリバランスするバックテストを同期実行します。対象資産の価格データを読み込み、**シグナル日の翌観測日に約定**（次営業日約定）して累積資産・評価指標・取引を返します。
+固定ウェイトまたはリバランス時再最適化のバックテストを同期実行します。対象資産の価格データを読み込み、**シグナル日の翌観測日に約定**（次営業日約定）して累積資産・評価指標・取引を返します。`reoptimize=true` にすると、各リバランスシグナル日まで（開始日またはデータ冒頭から）のデータで保存済み最適化アルゴリズムを再実行してウェイトを決めます（失敗した時点は直前ウェイト継続＋警告）。
 
 ```bash
 # 例: 4資産を固定ウェイト・月次リバランスでバックテスト
@@ -210,15 +210,17 @@ curl -X POST http://localhost:8000/api/backtests \
 | --- | --- | --- |
 | `asset_ids` | （必須） | 対象資産の論理ID一覧 |
 | `weights` | （必須） | 固定ウェイト（`asset_ids` 全資産分のキー。合計 1・各 0〜1） |
-| `rebalance_frequency` | `M` | `D` / `W` / `M`。約定日はシグナル日（D:毎営業日、W/M:各期間の最終観測日）の翌観測日 |
+| `rebalance_frequency` | `M` | `D` / `W` / `M` / `Y`（年次）。約定日はシグナル日（D:毎営業日、W/M/Y:各期間の最終観測日）の翌観測日 |
 | `initial_capital` | `1000000` | 初期資金（ポートフォリオ基準通貨） |
 | `cost_rate` | `0.0` | 売買手数料率（両建てレッグベース。0.001 = 0.1%） |
 | `risk_free_rate` | `0.0` | Sharpe / Sortino 等のリスクフリー金利（年率） |
 | `annualization_factor` | `252` | 年率換算係数 |
 | `start` / `end` | なし（全期間） | 使用する価格の期間（ルックアヘッド回避は約定構造が担保） |
 | `lookback` | `252` | 予約パラメータ（固定ウェイトでは未使用・echo 用） |
+| `reoptimize` | `false` | `true` にするとリバランス時に再最適化（`optimization_params` 必須） |
+| `optimization_params` | なし | 再最適化に使う最適化パラメータ（保存済み最適化の `OptimizationRequest`） |
 
-レスポンスには、`metrics`（累積/年率リターン・ボラ・Sharpe/Sortino/Calmar・最大ドローワウン・勝率・回転率・手数料。未定義は `null`）、日次の `equity_curve` / `drawdown` / `allocation`、暦年の `yearly`、`trades`（取引一覧）、`params`、`warnings` が含まれます。未取得資産・期間外・計算不能な入力は **400（日本語）**、スキーマ検証違反（ウェイト合計≠1 など）は **422** です。
+レスポンスには、`metrics`（累積/年率リターン・ボラ・Sharpe/Sortino/Calmar・最大ドローワウン・勝率・回転率・手数料。未定義は `null`）、日次の `equity_curve` / `drawdown` / `allocation`、暦年の `yearly`、`trades`（取引一覧）、`params`、`warnings`、再最適化時は各リバランス日の採用ウェイト `rebalance_weights` が含まれます。未取得資産・期間外・計算不能な入力は **400（日本語）**、スキーマ検証違反（ウェイト合計≠1 など）は **422** です。
 
 ## 通貨・FX 方針（初期版）
 
@@ -240,10 +242,10 @@ curl -X POST http://localhost:8000/api/backtests \
 - **完了**: **最適化サービス（PyPortfolioOpt・`static_allocation`）**。`app/optimization/service.py` に HTTP・DB 非依存の純粋計算層を実装。手法（max_sharpe / min_volatility / efficient_risk / efficient_return）、期待リターン（mean_historical_return / capm_return / ema_historical_return）、共分散（sample_cov / semicovariance / ledoit_wolf）を選択可能。生ウェイトと表示用 `clean_weights` を併記。入力検証・solver 失敗は日本語エラーで返す。固定データの単体テスト付き。
 - **完了**: **最適化 API（`POST /api/optimizations`）**。`static_allocation` へ配線し、`OptimizationRequest`（対象資産・期間 `start`/`end`・手法・共分散・リスクフリー金利・制約）で同期実行。未取得資産・期間外は 400（日本語）、`OptimizationInputError` はユーザーに理解可能なメッセージで返す。`start`/`end` 入力によるルックアヘッド回避。API テスト付き。
 - **完了**: **分析 API（`GET /api/data/analysis`）と分析画面**。processed Parquet から複数資産の価格推移・累積リターン・ローリングボラティリティ・相関行列をまとめて返し（`app/domain/returns.py` の `rolling_volatility` / `correlation_matrix` を再利用）、フロントエンドで日次/週次/月次を切り替えて Recharts 折れ線＋相関ヒートマップを表示。未取得資産は除外して日本語警告を附す。
-- **完了**: **最適化画面（GUI）**。`POST /api/optimizations` を配線し、対象資産（取得済みのみ）・手法・期待リターン・共分散・期間・リスクフリー金利・ウェイト上下限を入力して、資産別ウェイト・年率指標・警告を表示。
-- **完了**: **バックテスト（固定ウェイト・エンジン+API+画面）**。`app/backtest/engine.py` の `run_backtest` が固定ウェイトリバランスを計算し（**次営業日約定でルックアヘッド回避**）、`POST /api/backtests` と「バックテスト」画面（固定ウェイト・リバランス頻度・初期資金・コスト率を入力 → 累積資産/ドローワウン/配分推移の折れ線・評価指標・年次成績・取引一覧を表示）に配線。評価指標（累積/年率リターン・ボラ・Sharpe/Sortino/Calmar・最大ドローワウン・勝率・回転率・手数料）は未定義を null で返す。
-- **完了**: **比較・保存画面**。最適化・バックテストの実行結果を「比較に追加」でブラウザ内（`CompareContext`・メモリ・最大50件）にグローバル保持し、「比較・保存」画面で種別ごとの指標比較（最良値強調・null は「—」）・ラベル編集・削除と、JSON（実行結果一式）/ CSV（指標比較表）エクスポートができる。保存はブラウザ内のみ（ページ再読込で消える）ことを UI に明示。
-- **予定（後続工程）**: リバランス最適化（`rebalance_allocation`）、バックテスト実行結果の再現可能な保存（スナップショット・コードバージョン）、`/api/jobs` からの data_fetch 配線。
+- **完了**: **最適化画面（GUI）**。`POST /api/optimizations` を配線し、対象資産（取得済みのみ）・手法・期待リターン・共分散・期間・リスクフリー金利・ウェイト上下限を入力して、資産別ウェイト・**個別資産のリターン/リスク**・年率指標・警告を表示。
+- **完了**: **バックテスト（固定ウェイト/再最適化・エンジン+API+画面）**。`app/backtest/engine.py` の `run_backtest` がリバランスを計算し（**次営業日約定でルックアヘッド回避**）、`POST /api/backtests` と「バックテスト」画面（固定ウェイト・リバランス頻度（日次/週次/月次/年次）・初期資金・コスト率・**再最適化元の最適化（比較一覧から選択）**・再最適化チェックを入力 → 累積資産/ドローワウン/配分推移の折れ線・評価指標・年次成績・**リバランス時の採用ウェイト**・取引一覧を表示）に配線。`rebalance_allocation`（各シグナル日までスライスして最適化）によりリバランス時再最適化に対応し、失敗時は直前ウェイト継続＋日本語警告。評価指標（累積/年率リターン・ボラ・Sharpe/Sortino/Calmar・最大ドローワウン・勝率・回転率・手数料）は未定義を null で返す。対象資産は最適化と同じ multi-select。
+- **完了**: **比較・保存画面**。最適化・バックテストの実行結果を「比較に追加」でブラウザ内（`CompareContext`・メモリ・最大50件）にグローバル保持し、「比較・保存」画面で種別ごとの指標比較（最良値強調・null は「—」）・ラベル編集・削除と、JSON（実行結果一式）/ CSV（指標比較表）エクスポートができる。最適化の保存は再現用リクエスト（`OptimizationRequest`）を含め、バックテストの再最適化で呼び出せる。保存はブラウザ内のみ（ページ再読込で消える）ことを UI に明示。
+- **予定（後続工程）**: バックテスト実行結果の再現可能な保存（スナップショット・コードバージョン）、`/api/jobs` からの data_fetch 配線、Black-Litterman。
 
 バックテストの計算は**過去データによる仮想シミュレーション**です。高い成績を「最適」や「将来も有効」と解釈しないでください。
 
@@ -251,7 +253,7 @@ curl -X POST http://localhost:8000/api/backtests \
 
 - 実データ取得は **CLI 経由でのみ**接続しています。API ジョブ／GUI からの取得は未接続です（`/api/jobs` の data_fetch は未配線）。
 - Yahoo Finance のデータは非商用・研究目的に限定（利用規約を確認）。取得間隔は控えめにしてください。
-- 最適化（API + GUI）とバックテスト（固定ウェイト）は実装済み。`rebalance_allocation`（再最適化リバランス）は未実装。
+- 最適化（API + GUI）とバックテスト（固定ウェイト＋再最適化）は実装済み。再最適化の学習期間は「開始日またはデータ冒頭からリバランス日まで」（`lookback` は予約パラメータのまま）。
 - バックテストの「実行結果の再現可能な保存」（スナップショット・コードバージョンの永続化）は未実装（params echo による手動再現は可能）。`/api/runs` ・`/api/jobs` はメモリ内プレースホルダーのまま。
 - アプリは **localhost 利用限定**（初期版）。ネットワーク公開時は認証・認可、CORS、レート制限、APIキーの秘密管理、監査ログを設計してから有効化します。
 - 再現可能な `make test` 相当の全テスト、lint、型チェック、開発サーバー起動は上記「標準コマンド」で実行できます。
