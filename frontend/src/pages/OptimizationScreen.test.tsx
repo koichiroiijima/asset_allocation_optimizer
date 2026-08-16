@@ -76,6 +76,31 @@ const ASSETS_BODY = {
   ],
 };
 
+const BL_OPTIMIZATION_BODY = {
+  method: 'max_sharpe',
+  weights: { us_equity: 0.3, us_bond: 0.7 },
+  clean_weights: { us_equity: 0.3, us_bond: 0.7 },
+  metrics: {
+    expected_annual_return: 0.06,
+    annual_volatility: 0.04,
+    sharpe_ratio: 1.4,
+    asset_returns: { us_equity: 0.1, us_bond: 0.04 },
+    asset_volatilities: { us_equity: 0.19, us_bond: 0.05 },
+  },
+  params: {
+    optimization_method: 'max_sharpe',
+    expected_return_method: 'black_litterman',
+    covariance_method: 'sample_cov',
+    risk_free_rate: 0,
+    annualization_factor: 252,
+    weight_bounds: [0, 1],
+    bl_market_weights: { us_equity: 0.5, us_bond: 0.5 },
+    bl_omega_method: 'default',
+    bl_tau: 0.05,
+  },
+  warnings: [],
+};
+
 const OPTIMIZATION_BODY = {
   method: 'max_sharpe',
   weights: { us_equity: 0.4, us_bond: 0.6 },
@@ -262,5 +287,111 @@ describe('OptimizationScreen', () => {
     renderWithProvider(<OptimizationScreen />);
     await screen.findByText(/取得済みの資産がありません。/);
     expect(screen.queryByRole('button', { name: '最適化を実行' })).not.toBeInTheDocument();
+  });
+});
+
+describe('OptimizationScreen / Black-Litterman', () => {
+  beforeEach(() => {
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  async function selectBLAndAssets(user: ReturnType<typeof userEvent.setup>) {
+    await screen.findByRole('listbox', { name: /対象資産/ });
+    const assetSelect = screen.getByRole('listbox', { name: /対象資産/ });
+    await user.selectOptions(assetSelect, ['us_equity', 'us_bond']);
+    const expectedReturnSelect = screen.getByRole('combobox', { name: /期待リターン/ });
+    await user.selectOptions(expectedReturnSelect, 'black_litterman');
+  }
+
+  it('BL 選択で市場ポートフォリオ・ビュー・τ の入力が現れる', async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    renderWithProvider(<OptimizationScreen />);
+    await selectBLAndAssets(user);
+
+    expect(screen.getByText(/市場ポートフォリオのウェイト/)).toBeInTheDocument();
+    expect(screen.getByText(/ビュー（年率期待超過リターン/)).toBeInTheDocument();
+    expect(screen.getByText(/τ（ビュー信頼係数）/)).toBeInTheDocument();
+    expect(screen.getByText(/リスク回避度/)).toBeInTheDocument();
+  });
+
+  it('選択資産にデフォルトの市場ウェイト（合計100%）が表示される', async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    renderWithProvider(<OptimizationScreen />);
+    await selectBLAndAssets(user);
+
+    // 既定の4資産ウェイト（us_equity=22.88%, us_bond=21.40%）を選択資産2件で比率維持のまま
+    // 合計100%に正規化する（us_bond の .sort() 順で並ぶ: 48.33% → 51.67%）
+    const weightInputs = screen
+      .getByText(/市場ポートフォリオのウェイト/)
+      .closest('label')!
+      .querySelectorAll('input');
+    expect(weightInputs.length).toBe(2);
+    const values = Array.from(weightInputs).map((i) => i.value);
+    expect(values.sort()).toEqual(['48.33', '51.67']);
+  });
+
+  it('BL で実行すると POST body に BL フィールドが含まれる', async () => {
+    const fetchMock = stubFetch({ body: BL_OPTIMIZATION_BODY, status: 200 });
+    const user = userEvent.setup();
+    renderWithProvider(<OptimizationScreen />);
+    await selectBLAndAssets(user);
+
+    // デフォルト市場ウェイト（51.67% / 48.33% → 比率 0.5167 / 0.4833）が POST body に反映される
+    await user.click(screen.getByRole('button', { name: '最適化を実行' }));
+    await waitFor(() => expect(screen.getByText('0.3000')).toBeInTheDocument());
+
+    const optCalls = fetchMock.mock.calls.filter(([input]) =>
+      String(input).includes('/optimizations'),
+    );
+    const body = JSON.parse(String(optCalls[0][1]?.body));
+    // 市場ウェイトは % → 比率へ変換されて送られる（0.5167 / 0.4833）
+    expect(body.bl_market_weights.us_equity).toBeCloseTo(0.5167, 3);
+    expect(body.bl_market_weights.us_bond).toBeCloseTo(0.4833, 3);
+    expect(body.bl_omega_method).toBe('default');
+    expect(body.bl_tau).toBe(0.05);
+    // 未入力のビューは送られない
+    expect(body.bl_views).toBeUndefined();
+  });
+
+  it('ω=idzorek 選択時のみ確信度入力が現れる', async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    renderWithProvider(<OptimizationScreen />);
+    await selectBLAndAssets(user);
+
+    expect(screen.queryByText(/ビューの確信度/)).not.toBeInTheDocument();
+
+    const omegaSelect = screen.getByRole('combobox', { name: /ω（ビュー不確実性）/ });
+    await user.selectOptions(omegaSelect, 'idzorek');
+    expect(screen.getByText(/ビューの確信度/)).toBeInTheDocument();
+  });
+
+  it('市場ウェイトの合計が100%でない場合はバリデーションエラー', async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    renderWithProvider(<OptimizationScreen />);
+    await selectBLAndAssets(user);
+
+    const weightInputs = screen
+      .getByText(/市場ポートフォリオのウェイト/)
+      .closest('label')!
+      .querySelectorAll('input');
+    // 2 資産目の値を書き換えて合計を崩す
+    const secondInput = weightInputs[1];
+    await user.clear(secondInput);
+    await user.type(secondInput, '10');
+    await user.click(screen.getByRole('button', { name: '最適化を実行' }));
+
+    await screen.findByText(/市場ポートフォリオのウェイトの合計を 100%/);
   });
 });

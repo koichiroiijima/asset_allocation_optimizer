@@ -135,8 +135,22 @@ export type OptimizationMethod =
 export type ExpectedReturnMethod =
   | 'mean_historical_return'
   | 'capm_return'
-  | 'ema_historical_return';
+  | 'ema_historical_return'
+  | 'black_litterman';
 export type CovarianceMethod = 'sample_cov' | 'semicovariance' | 'ledoit_wolf';
+export type BlOmegaMethod = 'default' | 'idzorek';
+
+/**
+ * 既定の市場ポートフォリオウェイト（BL）。
+ * 米国株式/債券と除く株式/債券の時価総額(126.7/145.1兆USD)と株式/債券配分から合成した
+ * 4資産比率。order は DEFAULT_ASSET_ORDER に一致させる。
+ */
+export const BL_DEFAULT_MARKET_WEIGHTS: Record<string, number> = {
+  us_equity: 0.2288,
+  us_bond: 0.214,
+  ex_us_equity: 0.2373,
+  ex_us_bond: 0.3198,
+};
 
 export interface OptimizationRequest {
   asset_ids: string[];
@@ -150,6 +164,16 @@ export interface OptimizationRequest {
   weight_bounds: [number, number];
   target_return?: number;
   target_volatility?: number;
+  /** Black-Litterman 用（expected_return_method='black_litterman' のときのみ意味を持つ）。 */
+  bl_market_weights?: Record<string, number>;
+  /** 絶対ビュー（年率超過リターン。資産ID→率）。 */
+  bl_views?: Record<string, number>;
+  /** ビューの確信度（0-1）。omega=idzorek のとき必須。 */
+  bl_view_confidences?: Record<string, number>;
+  bl_omega_method?: BlOmegaMethod;
+  bl_tau?: number;
+  /** リスク回避度。省略時は市場ポートフォリオのリターンから逆算。 */
+  bl_risk_aversion?: number;
 }
 
 export interface OptimizationMetrics {
@@ -176,6 +200,12 @@ export interface OptimizationResponse {
     risk_free_rate: number;
     annualization_factor: number;
     weight_bounds: [number, number];
+    bl_market_weights?: Record<string, number>;
+    bl_views?: Record<string, number>;
+    bl_view_confidences?: Record<string, number>;
+    bl_omega_method?: BlOmegaMethod;
+    bl_tau?: number;
+    bl_risk_aversion?: number;
   };
   warnings: string[];
 }

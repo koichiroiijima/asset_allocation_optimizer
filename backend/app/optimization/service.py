@@ -26,12 +26,14 @@ import pandas as pd
 from pypfopt import (  # type: ignore[import-untyped]
     CovarianceShrinkage,
     EfficientFrontier,
+    black_litterman,
     expected_returns,
     risk_models,
 )
 from pypfopt.exceptions import OptimizationError  # type: ignore[import-untyped]
 
 from app.schemas.optimization import (
+    DEFAULT_MARKET_WEIGHTS,
     CovarianceMethod,
     OptimizationMetrics,
     OptimizationResult,
@@ -95,6 +97,149 @@ def _compute_expected_return(
         )
     # ema_historical_return
     return expected_returns.ema_historical_return(ts, frequency=factor)  # type: ignore[no-any-return]
+
+
+def _resolve_market_weights(
+    assets: list[str],
+    market_weights: dict[str, float] | None,
+    *,
+    warnings: list[str],
+) -> pd.Series:
+    """市場ポートフォリオのウェイト Series（列=選択資産）を返す。
+
+    `market_weights` が None なら `DEFAULT_MARKET_WEIGHTS` を使い、選択資産に無い
+    キーは 0 に落とす。指定値は合計が 1 になるよう正規化する（浮動小数点誤差対策）。
+    0 に落ちた資産・デフォルトの外挿が起きた場合は警告を積む。
+    """
+    base = DEFAULT_MARKET_WEIGHTS if market_weights is None else market_weights
+    w = pd.Series(base, dtype="float64").reindex(assets, fill_value=0.0)
+    total = w.sum()
+    if total <= 0.0:
+        raise OptimizationInputError(
+            "市場ポートフォリオのウェイトの合計が 0 です（黒字のウェイトを指定してください）"
+        )
+    w = w / total
+    zero_assets = [a for a in assets if w[a] <= 0.0]
+    if zero_assets:
+        warnings.append(
+            "市場ポートフォリオにウェイトが設定されていない資産（0%）: " + "、".join(zero_assets)
+        )
+    return w
+
+
+def _market_implied_risk_aversion(
+    prices: pd.DataFrame,
+    market_weights: pd.Series,
+    *,
+    annualization_factor: int,
+    risk_free_rate: float,
+) -> float:
+    """市場ポートフォリオの超過リターンと分散からリスク回避度を逆算する。
+
+    実際の想定超過リターン（年率）を想定分散（年率）で割った値。
+    BL の先行情報 Π = δ·Σ·w_mkt を作るための δ。観測期間が不安定な場合や
+    リターンがリスクフリー以下・分散が 0 のときは算出できないため
+    `OptimizationInputError`（明示的な bl_risk_aversion を案内）を投げる。
+    """
+    rets = prices.pct_change().dropna()
+    if rets.empty:
+        raise OptimizationInputError(
+            "リスク回避度を市場ポートフォリオから逆算できません。データが不足しています。"
+            "bl_risk_aversion を明示的に指定してください。"
+        )
+    weighted = (rets * market_weights).sum(axis=1)
+    annual_mean = float(weighted.mean()) * annualization_factor
+    annual_var = float(weighted.var()) * annualization_factor
+    if annual_var <= 0.0 or annual_mean <= risk_free_rate:
+        raise OptimizationInputError(
+            "リスク回避度を市場ポートフォリオから逆算できません"
+            "（市場リターンがリスクフリ金利を下回る、または分散が 0 以下）。"
+            "bl_risk_aversion を明示的に指定してください。"
+        )
+    return (annual_mean - risk_free_rate) / annual_var
+
+
+def _compute_black_litterman(
+    prices: pd.DataFrame,
+    params: StaticAllocationParams,
+    *,
+    warnings: list[str],
+) -> tuple[pd.Series, pd.DataFrame]:
+    """Black-Litterman の事後期待リターン mu（年率）と事後共分散 sigma（年率）を返す。
+
+    - 先行情報 pi は市場ポートフォリオのウェイト（`bl_market_weights`）と共分散から
+      `market_implied_prior_returns`（= δ·Σ·w_m + rf）で算出。
+    - 絶対ビュー（`bl_views`、年率超過リターン）を `absolute_views` として渡す。
+    - ビューのない場合は市場均衡と同一の事後分布になる（Π がそのまま mu）。
+    - omega は `bl_omega_method`（default=分散に比例／idzorek=確信度から）。idzorek は
+      ビューキー順に `view_confidences` を並べて渡す。
+    """
+    assets = list(prices.columns)
+    sigma = _compute_covariance(
+        prices, params.covariance_method, annualization_factor=params.annualization_factor
+    )
+    w_mkt = _resolve_market_weights(assets, params.bl_market_weights, warnings=warnings)
+
+    delta = params.bl_risk_aversion
+    if delta is None:
+        delta = _market_implied_risk_aversion(
+            prices,
+            w_mkt,
+            annualization_factor=params.annualization_factor,
+            risk_free_rate=params.risk_free_rate,
+        )
+    elif delta <= 0.0:
+        raise OptimizationInputError("bl_risk_aversion は正の値で指定してください")
+
+    pi = black_litterman.market_implied_prior_returns(
+        w_mkt, delta, sigma, risk_free_rate=params.risk_free_rate
+    )
+
+    views = dict(params.bl_views or {})
+    unknown = set(views) - set(assets)
+    if unknown:
+        raise OptimizationInputError(
+            "ビューの対象が選択資産に含まれません: " + "、".join(sorted(unknown))
+        )
+    if params.bl_omega_method == "idzorek":
+        view_confidences = [params.bl_view_confidences[a] for a in views]
+        omega: object = "idzorek"
+    else:
+        view_confidences = None
+        omega = params.bl_omega_method
+
+    try:
+        if not views:
+            # ビューが 0 件のとき市場均衡と事後は一致（mu=Π, 事後共分散=元の covariance）。
+            # PyPortfolioOpt は空ビュー（k=0）非対応のため model を介さない。
+            mu = pi.astype("float64")
+            mu = mu.reindex(assets, fill_value=np.nan)
+            posterior_cov = sigma
+        else:
+            bl = black_litterman.BlackLittermanModel(
+                sigma,
+                pi=pi,
+                absolute_views=views,
+                omega=omega,
+                view_confidences=view_confidences,
+                tau=params.bl_tau,
+            )
+            mu = bl.bl_returns()
+            posterior_cov = bl.bl_cov()
+    except (ValueError, TypeError, np.linalg.LinAlgError) as exc:
+        raise OptimizationInputError(
+            f"Black-Litterman の計算に失敗しました（手法: {params.optimization_method}）。"
+            "ビュー・τ・市場ポートフォリオの設定を確認してください。",
+            origin=exc,
+        ) from exc
+
+    # ビュー対象外の資産は mu が NaN になるため、先行情報（pi）で補填する。
+    mu = mu.astype("float64").reindex(assets, fill_value=np.nan)
+    for a in assets:
+        if np.isnan(mu[a]):
+            mu[a] = float(pi[a])
+    sigma_out = posterior_cov.reindex(index=assets, columns=assets).astype("float64")
+    return mu, sigma_out
 
 
 def _compute_covariance(
@@ -219,10 +364,13 @@ def static_allocation(
         )
 
     try:
-        mu = _compute_expected_return(usable, params, benchmark=benchmark)
-        sigma = _compute_covariance(
-            usable, params.covariance_method, annualization_factor=params.annualization_factor
-        )
+        if params.expected_return_method == "black_litterman":
+            mu, sigma = _compute_black_litterman(usable, params, warnings=warnings)
+        else:
+            mu = _compute_expected_return(usable, params, benchmark=benchmark)
+            sigma = _compute_covariance(
+                usable, params.covariance_method, annualization_factor=params.annualization_factor
+            )
     except OptimizationInputError:
         raise
     except Exception as exc:  # 推定段階の例外を説明可能なエラーへ変換（握りつぶさない）

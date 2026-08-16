@@ -11,8 +11,8 @@ import numpy as np
 import pandas as pd
 import pytest
 from app.optimization.service import OptimizationInputError, static_allocation
-from app.schemas.optimization import StaticAllocationParams
-from pypfopt import EfficientFrontier, expected_returns, risk_models
+from app.schemas.optimization import DEFAULT_MARKET_WEIGHTS, StaticAllocationParams
+from pypfopt import EfficientFrontier, black_litterman, expected_returns, risk_models
 
 # 確定的な固定データ（乱数シード固定・再現可能）。
 _DATES = pd.date_range("2020-01-01", periods=300, freq="D")
@@ -231,3 +231,179 @@ def test_static_allocation_matches_direct_pypfopt() -> None:
 
     for name in prices.columns:
         assert result.weights[name] == pytest.approx(expected_weights[name])
+
+
+# ---------------------------------------------------------------- Black-Litterman ---
+
+
+def test_bl_prior_matches_manual_pi() -> None:
+    """BL の先行情報 Π が δ·Σ·w_mkt + rf の手計算と一致する。
+
+    `static_allocation` の `metrics.asset_returns`（no-views 時は pi と同一）を
+    PyPortfolioOpt の `market_implied_prior_returns`（＝手計算式）と照合する。
+    """
+    prices = _make_prices()
+    params = StaticAllocationParams(
+        expected_return_method="black_litterman", bl_risk_aversion=3.0
+    )
+    result = static_allocation(prices, params)
+
+    sigma = _cov_from_prices(prices)
+    w_mkt = pd.Series(DEFAULT_MARKET_WEIGHTS, dtype="float64").reindex(prices.columns)
+    delta = params.bl_risk_aversion
+    assert delta is not None  # mypy: 3.0 を指定している
+    expected = delta * sigma.dot(w_mkt / w_mkt.sum()) + params.risk_free_rate
+    for name in prices.columns:
+        assert result.metrics.asset_returns[name] == pytest.approx(expected[name], rel=1e-6)
+
+
+def test_bl_no_views_matches_market_weights() -> None:
+    """BL でビューを指定しないと市場均衡（=市場ポートフォリオ）に収束する。
+
+    逆算されたリスク回避度 δ = (E[r_p] - rf)/Var[r_p] を用いると、ビュー無しの最大
+    Sharpe 解は市場ポートフォリオウェイト w_mkt と一致する（tangency portfolio）。
+    これにより「ビューなしBL = 市場均衡」の性質を検証する。
+    """
+    prices = _make_prices()
+    params = StaticAllocationParams(
+        expected_return_method="black_litterman", optimization_method="max_sharpe"
+    )
+    result = static_allocation(prices, params)
+
+    w_mkt = pd.Series(DEFAULT_MARKET_WEIGHTS, dtype="float64").reindex(prices.columns)
+    w_mkt = w_mkt / w_mkt.sum()
+    for name in prices.columns:
+        assert result.weights[name] == pytest.approx(w_mkt[name], abs=1e-3)
+
+
+def test_bl_view_moves_expected_returns() -> None:
+    """絶対ビューが期待リターンを市場均衡から動かす（方向と大きさ）。"""
+    prices = _make_prices()
+    base = StaticAllocationParams(expected_return_method="black_litterman")
+    base_result = static_allocation(prices, base)
+
+    view = StaticAllocationParams(
+        expected_return_method="black_litterman", bl_views={"us_equity": 0.05}
+    )
+    view_result = static_allocation(prices, view)
+    # ビューで us_equity の期待リターンが上昇し、他の資産にも波及する
+    assert (
+        view_result.metrics.asset_returns["us_equity"]
+        > base_result.metrics.asset_returns["us_equity"]
+    )
+    assert view_result.weights["us_equity"] > base_result.weights["us_equity"]
+
+
+def test_bl_tau_is_invariant_with_default_omega() -> None:
+    """τ は `omega="default"` では結果に影響しない（独立性の検証）。
+
+    PyPortfolioOpt の `default_omega = τ·P·Σ·Pᵀ` と事後式の分子 `τ·Σ·Pᵀ` が
+    打ち消し合い、τ は default_omega 使用時に計算結果へ現れない。仕様として
+    （τ の効果が見たい場合は omega を明示的に指定する必要がある）。
+    """
+    prices = _make_prices()
+    r_low = static_allocation(
+        prices,
+        StaticAllocationParams(
+            expected_return_method="black_litterman",
+            bl_views={"us_equity": 0.10},
+            bl_tau=0.01,
+        ),
+    )
+    r_high = static_allocation(
+        prices,
+        StaticAllocationParams(
+            expected_return_method="black_litterman",
+            bl_views={"us_equity": 0.10},
+            bl_tau=1.0,
+        ),
+    )
+    for name in prices.columns:
+        assert r_low.metrics.asset_returns[name] == pytest.approx(
+            r_high.metrics.asset_returns[name], abs=1e-12
+        )
+
+
+def test_bl_matches_direct_black_litterman_model() -> None:
+    """BL サービスの事後 mu / sigma が直接 BlackLittermanModel と一致する（同値検証）。"""
+    prices = _make_prices()
+    params = StaticAllocationParams(
+        expected_return_method="black_litterman",
+        bl_views={"us_equity": 0.05, "us_bond": -0.02},
+        bl_risk_aversion=3.0,
+        bl_tau=0.1,
+    )
+    result = static_allocation(prices, params)
+
+    sigma = _cov_from_prices(prices)
+    pi = black_litterman.market_implied_prior_returns(
+        pd.Series(DEFAULT_MARKET_WEIGHTS, dtype="float64").reindex(prices.columns),
+        params.bl_risk_aversion,
+        sigma,
+        risk_free_rate=params.risk_free_rate,
+    )
+    bl = black_litterman.BlackLittermanModel(
+        sigma,
+        pi=pi,
+        absolute_views=params.bl_views,
+        omega="default",
+        tau=params.bl_tau,
+    )
+    for name in prices.columns:
+        assert result.metrics.asset_returns[name] == pytest.approx(bl.bl_returns()[name], rel=1e-6)
+        assert result.metrics.asset_volatilities[name] == pytest.approx(
+            float(np.sqrt(bl.bl_cov().loc[name, name])), rel=1e-4
+        )
+
+
+def test_bl_omega_idzorek_differs_from_default() -> None:
+    """omega=idzorek（確信度指定）は default（分散比例）とは別の結果になる。"""
+    prices = _make_prices()
+    params_default = StaticAllocationParams(
+        expected_return_method="black_litterman",
+        bl_views={"us_equity": 0.05},
+        bl_risk_aversion=3.0,
+    )
+    params_idzorek = StaticAllocationParams(
+        expected_return_method="black_litterman",
+        bl_views={"us_equity": 0.05},
+        bl_view_confidences={"us_equity": 0.95},
+        bl_omega_method="idzorek",
+        bl_risk_aversion=3.0,
+    )
+    r_default = static_allocation(prices, params_default)
+    r_idzorek = static_allocation(prices, params_idzorek)
+    # 確信度高（0.95）ならビューへ強く引かれる
+    assert (
+        r_idzorek.metrics.asset_returns["us_equity"]
+        > r_default.metrics.asset_returns["us_equity"]
+    )
+
+
+def test_bl_validation_errors() -> None:
+    """BL の不正なパラメータはスキーマのバリデーション（ValueError）で弾かれる。"""
+    with pytest.raises(ValueError, match="bl_tau"):
+        StaticAllocationParams(expected_return_method="black_litterman", bl_tau=0.0)
+    with pytest.raises(ValueError, match="bl_tau"):
+        StaticAllocationParams(expected_return_method="black_litterman", bl_tau=1.5)
+    with pytest.raises(ValueError, match="bl_risk_aversion"):
+        StaticAllocationParams(expected_return_method="black_litterman", bl_risk_aversion=0.0)
+    with pytest.raises(ValueError, match="確信度"):
+        StaticAllocationParams(
+            expected_return_method="black_litterman", bl_view_confidences={"us_equity": 1.2}
+        )
+    with pytest.raises(ValueError, match="市場ポートフォリオ"):
+        StaticAllocationParams(
+            expected_return_method="black_litterman",
+            bl_market_weights={"us_equity": 0.5, "us_bond": 0.5, "ex_us_equity": 0.5},
+        )
+
+
+def test_bl_unknown_view_asset_raises() -> None:
+    """ビューの対象が選択資産外（サービス層の防御チェック）。"""
+    prices = _make_prices()
+    params = StaticAllocationParams(
+        expected_return_method="black_litterman", bl_views={"missing_asset": 0.05}
+    )
+    with pytest.raises(OptimizationInputError, match="ビューの対象"):
+        static_allocation(prices, params)

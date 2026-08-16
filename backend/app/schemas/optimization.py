@@ -12,8 +12,21 @@ from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 OptimizationMethod = Literal["max_sharpe", "min_volatility", "efficient_risk", "efficient_return"]
-ExpectedReturnMethod = Literal["mean_historical_return", "capm_return", "ema_historical_return"]
+ExpectedReturnMethod = Literal[
+    "mean_historical_return", "capm_return", "ema_historical_return", "black_litterman"
+]
 CovarianceMethod = Literal["sample_cov", "semicovariance", "ledoit_wolf"]
+BlOmegaMethod = Literal["default", "idzorek"]
+
+# Black-Litterman の既定市場ポートフォリオウェイト（ユーザー設定）。
+# 米国株式/債券と除く株式/債券の時価総額(126.7/145.1兆USD)と株式/債券配分から合成した
+# 4資産ウェイト。GUI のデフォルト入力としても使用する（設計: docs/design.md）。
+DEFAULT_MARKET_WEIGHTS: dict[str, float] = {
+    "us_equity": 0.2288,
+    "us_bond": 0.2140,
+    "ex_us_equity": 0.2373,
+    "ex_us_bond": 0.3198,
+}
 
 
 class StaticAllocationParams(BaseModel):
@@ -38,6 +51,18 @@ class StaticAllocationParams(BaseModel):
     asset_weight_bounds: dict[str, tuple[float, float]] = Field(default_factory=dict)
     target_return: float | None = None
     target_volatility: float | None = None
+    # --- Black-Litterman 用（expected_return_method="black_litterman" のときのみ使用） ---
+    # 市場ポートフォリオのウェイト（資産ID→比率、合計1）。None なら DEFAULT_MARKET_WEIGHTS。
+    bl_market_weights: dict[str, float] | None = None
+    # 絶対ビュー（年率超過リターン。資産ID→期待超過リターン）。
+    bl_views: dict[str, float] = Field(default_factory=dict)
+    # ビューの確信度（0-1）。bl_omega_method="idzorek" のとき必須。
+    bl_view_confidences: dict[str, float] = Field(default_factory=dict)
+    # ビュー不確実性の決定方法（default=分散に比例／idzorek=確信度から算出）。
+    bl_omega_method: BlOmegaMethod = "default"
+    bl_tau: float = 0.05
+    # リスク回避度。None=市場ポートフォリオのリターンから逆算。
+    bl_risk_aversion: float | None = None
 
     @model_validator(mode="after")
     def _validate_bounds(self) -> "StaticAllocationParams":
@@ -63,6 +88,35 @@ class StaticAllocationParams(BaseModel):
             raise ValueError("efficient_risk には target_volatility が必要です")
         return self
 
+    @model_validator(mode="after")
+    def _validate_black_litterman(self) -> "StaticAllocationParams":
+        """BL 用パラメータの値域・整合を検証する（資産照合はリクエスト層で行う）。"""
+        if not (0.0 < self.bl_tau <= 1.0):
+            raise ValueError("bl_tau は 0 より大きく 1 以下で指定してください")
+        if self.bl_risk_aversion is not None and self.bl_risk_aversion <= 0.0:
+            raise ValueError("bl_risk_aversion は正の値で指定してください")
+        for name, conf in self.bl_view_confidences.items():
+            if not (0.0 <= conf <= 1.0):
+                raise ValueError(f"ビュー確信度は 0〜1 で指定してください（{name}: {conf}）")
+        if self.bl_market_weights is not None:
+            for name, w in self.bl_market_weights.items():
+                if w < 0.0 or w > 1.0:
+                    raise ValueError(
+                        f"市場ポートフォリオのウェイトは 0〜1 で指定してください（{name}: {w}）"
+                    )
+            total = sum(self.bl_market_weights.values())
+            if abs(total - 1.0) > 1e-3:
+                raise ValueError(
+                    f"市場ポートフォリオのウェイトの合計が 1 になりません（合計: {total:.4f}）"
+                )
+        if (
+            self.bl_omega_method == "idzorek"
+            and self.bl_views
+            and not set(self.bl_view_confidences).issuperset(self.bl_views)
+        ):
+            raise ValueError("bl_omega_method=idzorek のときは全てのビューに確信度が必要です")
+        return self
+
 
 class OptimizationRequest(StaticAllocationParams):
     """`POST /api/optimizations` のリクエストボディ。
@@ -75,6 +129,25 @@ class OptimizationRequest(StaticAllocationParams):
     asset_ids: list[str] = Field(min_length=1)
     start: date | None = None
     end: date | None = None
+
+    @model_validator(mode="after")
+    def _validate_bl_assets(self) -> "OptimizationRequest":
+        """BL のビュー・市場ポートフォリオのキーが選択資産内であることを検証する。"""
+        if self.expected_return_method != "black_litterman":
+            return self
+        unknown_views = set(self.bl_views) - set(self.asset_ids)
+        if unknown_views:
+            raise ValueError(
+                "ビューの対象は選択資産内で指定してください: " + "、".join(sorted(unknown_views))
+            )
+        if self.bl_market_weights is not None:
+            unknown_mkt = set(self.bl_market_weights) - set(self.asset_ids)
+            if unknown_mkt:
+                raise ValueError(
+                    "市場ポートフォリオの対象は選択資産内で指定してください: "
+                    + "、".join(sorted(unknown_mkt))
+                )
+        return self
 
 
 class OptimizationMetrics(BaseModel):
@@ -107,7 +180,9 @@ class OptimizationResult(BaseModel):
 
 
 __all__ = [
+    "BlOmegaMethod",
     "CovarianceMethod",
+    "DEFAULT_MARKET_WEIGHTS",
     "ExpectedReturnMethod",
     "OptimizationMethod",
     "OptimizationMetrics",

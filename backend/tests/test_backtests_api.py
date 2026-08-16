@@ -286,3 +286,36 @@ def test_backtest_reoptimize_without_params_returns_422(
         json=_backtest_payload(reoptimize=True),
     )
     assert resp.status_code == 422
+
+
+def test_backtest_reoptimize_with_black_litterman_returns_rebalance_weights(
+    client: TestClient, tmp_settings: Settings
+) -> None:
+    """BL を再最適化に使ったバックテストが動作し、採用ウェイトが返る。
+
+    保存済み最適化の `optimization_params`（BL・ビュー・市場ポートフォリオ）を
+    再最適化に使用するケース。
+    """
+    _save_assets(ParquetPriceRepository(tmp_settings.processed_dir), ["us_equity", "us_bond"])
+    resp = client.post(
+        "/api/backtests",
+        json=_backtest_payload(
+            reoptimize=True,
+            optimization_params={
+                "asset_ids": ["us_equity", "us_bond"],
+                "optimization_method": "max_sharpe",
+                "expected_return_method": "black_litterman",
+                "covariance_method": "sample_cov",
+                "risk_free_rate": 0.0,
+                "annualization_factor": 252,
+                "weight_bounds": [0.0, 1.0],
+                "bl_market_weights": {"us_equity": 0.5, "us_bond": 0.5},
+                "bl_views": {"us_equity": 0.02},
+                "bl_risk_aversion": 3.0,
+            },
+        ),
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["rebalance_weights"] is not None
+    assert len(body["rebalance_weights"]) >= 1

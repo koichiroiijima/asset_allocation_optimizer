@@ -1,15 +1,17 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { useCompare } from '../compare/CompareContext';
 import { makeResultId, type StoredResult } from '../compare/types';
 import { useAssets } from '../hooks/useAssets';
-import type {
-  Asset,
-  CovarianceMethod,
-  ExpectedReturnMethod,
-  OptimizationMethod,
-  OptimizationRequest,
-  OptimizationResponse,
+import {
+  BL_DEFAULT_MARKET_WEIGHTS,
+  type Asset,
+  type BlOmegaMethod,
+  type CovarianceMethod,
+  type ExpectedReturnMethod,
+  type OptimizationMethod,
+  type OptimizationRequest,
+  type OptimizationResponse,
 } from '../api/types';
 
 /** 最適化手法の選択肢。 */
@@ -20,10 +22,11 @@ const METHOD_OPTIONS: { value: OptimizationMethod; label: string }[] = [
   { value: 'efficient_return', label: '目標リターン（efficient_return）' },
 ];
 
-/** 期待リターン推定の選択肢。capm_return は API 経由でベンチマークを渡せないため除外。 */
+/** 期待リターン推定の選択肢。capm は API 経由でベンチマークを渡せないため除外。 */
 const EXPECTED_RETURN_OPTIONS: { value: ExpectedReturnMethod; label: string }[] = [
   { value: 'mean_historical_return', label: '平均歴史的リターン' },
   { value: 'ema_historical_return', label: 'EMA リターン' },
+  { value: 'black_litterman', label: 'Black-Litterman' },
 ];
 
 /** 共分散推定の選択肢。 */
@@ -38,6 +41,7 @@ const EXPECTED_RETURN_LABELS: Record<ExpectedReturnMethod, string> = {
   mean_historical_return: '平均リターン',
   capm_return: 'CAPM リターン',
   ema_historical_return: 'EMA リターン',
+  black_litterman: 'Black-Litterman',
 };
 
 /** 最適化手法の日本語ラベル。 */
@@ -65,9 +69,40 @@ interface FormState {
   weightLower: string;
   weightUpper: string;
   annualizationFactor: string;
+  // Black-Litterman 用（expectedReturnMethod='black_litterman' のときのみ使用）
+  blMarketWeights: Record<string, string>;
+  blViews: Record<string, string>;
+  blViewConfidences: Record<string, string>;
+  blOmegaMethod: BlOmegaMethod;
+  blTau: string;
+  blRiskAversion: string;
 }
 
-const INITIAL_FORM: FormState = {
+/**
+ * 選択資産のデフォルト市場ポートフォリオウェイト（% 表記）を初期化する。
+ * 既定の4資産ウェイトを持つ資産のみを対象に、比率を保ったまま合計100%へ正規化する
+ * （既定値を持たない資産には 0% を設定。ユーザーが明示的に埋める）。
+ */
+function defaultMarketWeightPct(assetIds: string[]): Record<string, string> {
+  const known = assetIds.filter((a) => BL_DEFAULT_MARKET_WEIGHTS[a] != null);
+  const knownTotal = known.reduce(
+    (acc, a) => acc + (BL_DEFAULT_MARKET_WEIGHTS[a] ?? 0),
+    0,
+  );
+  const out: Record<string, string> = {};
+  if (knownTotal > 0) {
+    const scaler = 100 / knownTotal;
+    for (const a of known) {
+      out[a] = ((BL_DEFAULT_MARKET_WEIGHTS[a] ?? 0) * scaler).toFixed(2);
+    }
+  }
+  for (const a of assetIds) {
+    if (out[a] == null) out[a] = '0';
+  }
+  return out;
+}
+
+export const INITIAL_FORM: FormState = {
   selectedAssetIds: [],
   method: 'max_sharpe',
   expectedReturnMethod: 'mean_historical_return',
@@ -80,10 +115,56 @@ const INITIAL_FORM: FormState = {
   weightLower: '0',
   weightUpper: '1',
   annualizationFactor: '252',
+  blMarketWeights: {},
+  blViews: {},
+  blViewConfidences: {},
+  blOmegaMethod: 'default',
+  blTau: '0.05',
+  blRiskAversion: '',
 };
+
+/** BL のフォーム入力を `Record<資産ID, number>` へ変換する（空欄・無効値を除外）。 */
+function blRecordFromForm(rec: Record<string, string>): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(rec)
+      .map(([k, v]) => [k, Number(v)])
+      .filter(([, v]) => !Number.isNaN(v) && v !== 0),
+  );
+}
+
+/** 0 も含めて数値化する（bootstrap: 空欄・NaN のみ除外）。市場ウェイトの重量用。 */
+function blRecordKeepZero(rec: Record<string, string>): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(rec)
+      .map(([k, v]) => [k, Number(v)])
+      .filter(([, v]) => !Number.isNaN(v)),
+  );
+}
+
+/** % 表記（合計100）を比率（合計1）へ変換する。ビュー用（0は無効値として除外）。 */
+function blPctToRatio(rec: Record<string, string>): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(blRecordFromForm(rec)).map(([k, v]) => [k, v / 100]),
+  );
+}
+
+/** 市場ポートフォリオのウェイト（% 合計100 → 比率合計1、0% は維持）。 */
+function blMarketToRatio(rec: Record<string, string>): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(blRecordKeepZero(rec)).map(([k, v]) => [k, v / 100]),
+  );
+}
+
+/** 確信度（0-1）はそのまま比率として送る（% ではない）。 */
+function blConfidenceOut(rec: Record<string, string>): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(blRecordFromForm(rec)).map(([k, v]) => [k, v]),
+  );
+}
 
 /** フォーム入力を `OptimizationRequest` へ変換する。date input は既に YYYY-MM-DD 形式。 */
 function buildRequest(f: FormState): OptimizationRequest {
+  const isBL = f.expectedReturnMethod === 'black_litterman';
   return {
     asset_ids: f.selectedAssetIds,
     optimization_method: f.method,
@@ -96,6 +177,22 @@ function buildRequest(f: FormState): OptimizationRequest {
     end: f.end || undefined,
     ...(f.method === 'efficient_return' ? { target_return: Number(f.targetReturn) } : {}),
     ...(f.method === 'efficient_risk' ? { target_volatility: Number(f.targetVolatility) } : {}),
+    // Black-Litterman 用フィールド（選択時のみ送る）
+    // 市場ウェイトが空（未入力）ならフィールド自体を省略し、サービスの既定値
+    // （DEFAULT_MARKET_WEIGHTS）を使わせる。
+    ...(isBL && Object.keys(f.blMarketWeights).length > 0
+      ? { bl_market_weights: blMarketToRatio(f.blMarketWeights) }
+      : {}),
+    ...(isBL && Object.keys(blPctToRatio(f.blViews)).length > 0
+      ? { bl_views: blPctToRatio(f.blViews) }
+      : {}),
+    ...(isBL ? { bl_omega_method: f.blOmegaMethod, bl_tau: Number(f.blTau || '0.05') } : {}),
+    ...(isBL && f.blRiskAversion.trim() !== ''
+      ? { bl_risk_aversion: Number(f.blRiskAversion) }
+      : {}),
+    ...(isBL && f.blOmegaMethod === 'idzorek' && Object.keys(blConfidenceOut(f.blViewConfidences)).length > 0
+      ? { bl_view_confidences: blConfidenceOut(f.blViewConfidences) }
+      : {}),
   };
 }
 
@@ -134,6 +231,31 @@ function validateForm(f: FormState): string | null {
   }
   if (f.method === 'efficient_risk' && !f.targetVolatility.trim()) {
     return 'efficient_risk には target_volatility（目標ボラティリティ）が必要です';
+  }
+
+  // Black-Litterman の軽い検証（サーバー 422 に依存しない）
+  if (f.expectedReturnMethod === 'black_litterman') {
+    const tau = Number(f.blTau);
+    if (Number.isNaN(tau) || tau <= 0 || tau > 1) {
+      return 'BL の τ（ビュー信頼係数）は 0 より大きく 1 以下で入力してください';
+    }
+    if (f.blRiskAversion.trim() !== '' && Number(f.blRiskAversion) <= 0) {
+      return 'BL のリスク回避度は正の値で入力してください（未入力なら自動算出）';
+    }
+    // 市場ポートフォリオの合計が 100%（±許容誤差）
+    const mkt = blRecordFromForm(f.blMarketWeights);
+    const total = Object.values(mkt).reduce((a, b) => a + b, 0);
+    if (f.selectedAssetIds.length > 0 && Math.abs(total - 100) > 0.5) {
+      return `市場ポートフォリオのウェイトの合計を 100% にしてください（現在: ${total.toFixed(1)}%）`;
+    }
+    if (f.blOmegaMethod === 'idzorek') {
+      const missingConf = Object.keys(f.blViews).filter(
+        (a) => !f.blViewConfidences[a] || Number(f.blViewConfidences[a]) < 0 || Number(f.blViewConfidences[a]) > 1,
+      );
+      if (missingConf.length > 0) {
+        return 'BL の ω=idzorek では各ビューに確信度（0-1）が必要です';
+      }
+    }
   }
   return null;
 }
@@ -180,6 +302,43 @@ export function OptimizationScreen() {
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
+
+  /**
+ * 対象資産の選択を更新し、BL の市場ポートフォリオ・ビュー・確信度を
+ * 選択資産に合わせて初期化する。市場ポートフォリオは既定値で埋める。
+ */
+  const handleAssetsChange = (next: string[]) => {
+    setForm((prev) => {
+      const changed =
+        next.length !== prev.selectedAssetIds.length ||
+        next.some((a, i) => a !== prev.selectedAssetIds[i]);
+      if (!changed) {
+        return { ...prev, selectedAssetIds: next };
+      }
+      return {
+        ...prev,
+        selectedAssetIds: next,
+        blMarketWeights: defaultMarketWeightPct(next),
+        blViews: Object.fromEntries(next.map((a) => [a, prev.blViews[a] ?? ''])),
+        blViewConfidences: Object.fromEntries(
+          next.map((a) => [a, prev.blViewConfidences[a] ?? '']),
+        ),
+      };
+    });
+  };
+
+  // 資産一覧の読み込み後、選択資産が変化した時に市場ポートフォリオ既定値をフォームへ反映する。
+  // （useEffect は handleAssetsChange と `selectedAssetIds` の依存を一方向にしないよう、
+  //   変更検知は handleAssetsChange 側で行い、ここでは初期化時の既定値供給のみを担う）。
+  useEffect(() => {
+    if (
+      form.expectedReturnMethod === 'black_litterman' &&
+      form.selectedAssetIds.length > 0 &&
+      Object.keys(form.blMarketWeights).length === 0
+    ) {
+      setForm((prev) => ({ ...prev, blMarketWeights: defaultMarketWeightPct(prev.selectedAssetIds) }));
+    }
+  }, [form.expectedReturnMethod, form.selectedAssetIds, form.blMarketWeights]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -234,9 +393,10 @@ export function OptimizationScreen() {
                 size={4}
                 value={form.selectedAssetIds}
                 onChange={(e) =>
-                  update(
-                    'selectedAssetIds',
-                    Array.from(e.target.selectedOptions).filter((o) => o.selected).map((o) => o.value),
+                  handleAssetsChange(
+                    Array.from(e.target.selectedOptions)
+                      .filter((o) => o.selected)
+                      .map((o) => o.value),
                   )
                 }
               >
@@ -372,6 +532,123 @@ export function OptimizationScreen() {
                 onChange={(e) => update('annualizationFactor', e.target.value)}
               />
             </label>
+
+            {form.expectedReturnMethod === 'black_litterman' && (
+              <>
+                <label>
+                  <span>市場ポートフォリオのウェイト（%・合計100）</span>
+                  {form.selectedAssetIds
+                    .sort()
+                    .map((a) => (
+                      <span key={a} className="bl-field">
+                        <span className="hint-text">{assetLabel(a, assets?.assets)}</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={form.blMarketWeights[a] ?? ''}
+                          onChange={(e) =>
+                            update('blMarketWeights', {
+                              ...form.blMarketWeights,
+                              [a]: e.target.value,
+                            })
+                          }
+                        />
+                      </span>
+                    ))}
+                  <span className="hint-text">
+                    投資家が想定する市場ポートフォリオ（時価総額加重）の構成比率。未指定なら既定値
+                    （VTI 22.9% / AGG 21.4% / VXUS 23.7% / IAGG 32.0%）を選択資産に合わせて正規化します。
+                  </span>
+                </label>
+
+                <label>
+                  <span>ビュー（年率期待超過リターン %）</span>
+                  {form.selectedAssetIds
+                    .sort()
+                    .map((a) => (
+                      <span key={a} className="bl-field">
+                        <span className="hint-text">{assetLabel(a, assets?.assets)}</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={form.blViews[a] ?? ''}
+                          placeholder="（空=ビューなし）"
+                          onChange={(e) =>
+                            update('blViews', { ...form.blViews, [a]: e.target.value })
+                          }
+                        />
+                      </span>
+                    ))}
+                  <span className="hint-text">
+                    各資産の年率期待超過リターン（risk-free を除いた見方）。空欄はビューなし。
+                  </span>
+                </label>
+
+                <label>
+                  <span>ω（ビュー不確実性）の決定方法</span>
+                  <select
+                    value={form.blOmegaMethod}
+                    onChange={(e) => update('blOmegaMethod', e.target.value as BlOmegaMethod)}
+                  >
+                    <option value="default">分散に比例（default）</option>
+                    <option value="idzorek">Idzorek（確信度から算出）</option>
+                  </select>
+                </label>
+
+                {form.blOmegaMethod === 'idzorek' && (
+                  <label>
+                    <span>ビューの確信度（0-1）</span>
+                    {form.selectedAssetIds
+                      .filter((a) => form.blViews[a] && form.blViews[a].trim() !== '')
+                      .map((a) => (
+                        <span key={a} className="bl-field">
+                          <span className="hint-text">{assetLabel(a, assets?.assets)}</span>
+                          <input
+                            type="number"
+                            step="0.05"
+                            min={0}
+                            max={1}
+                            value={form.blViewConfidences[a] ?? ''}
+                            onChange={(e) =>
+                              update('blViewConfidences', {
+                                ...form.blViewConfidences,
+                                [a]: e.target.value,
+                              })
+                            }
+                          />
+                        </span>
+                      ))}
+                  </label>
+                )}
+
+                <label>
+                  <span>τ（ビュー信頼係数）</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min={0.01}
+                    max={1}
+                    value={form.blTau}
+                    onChange={(e) => update('blTau', e.target.value)}
+                  />
+                  <span className="hint-text">既定 0.05。ω=default では結果に影響しません。</span>
+                </label>
+
+                <label>
+                  <span>リスク回避度（任意）</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={form.blRiskAversion}
+                    placeholder="空欄=市場から自動算出"
+                    onChange={(e) => update('blRiskAversion', e.target.value)}
+                  />
+                  <span className="hint-text">
+                    明示しない場合、市場ポートフォリオの超過リターンと分散から逆算します。
+                  </span>
+                </label>
+              </>
+            )}
 
             <div className="opt-actions">
               <button type="submit" disabled={running}>

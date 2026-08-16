@@ -178,13 +178,31 @@ curl -X POST http://localhost:8000/api/optimizations \
 | `asset_ids` | （必須） | 対象資産の論理ID一覧 |
 | `start` / `end` | なし（全期間） | 使用する価格の期間。**ルックアヘッド回避**はこの期間指定で保証される |
 | `optimization_method` | `max_sharpe` | `max_sharpe` / `min_volatility` / `efficient_risk` / `efficient_return` |
-| `expected_return_method` | `mean_historical_return` | `mean_historical_return` / `capm_return` / `ema_historical_return`（`capm_return` はベンチマーク系列が必要） |
+| `expected_return_method` | `mean_historical_return` | `mean_historical_return` / `capm_return` / `ema_historical_return` / **`black_litterman`**（`capm_return` はベンチマーク系列が必要） |
 | `covariance_method` | `sample_cov` | `sample_cov` / `semicovariance` / `ledoit_wolf` |
 | `risk_free_rate` | `0.0` | リスクフリー金利 |
 | `weight_bounds` | `[0.0, 1.0]` | 全資産共通のウェイト上下限。`asset_weight_bounds` で資産別に上書き可 |
 | `target_return` / `target_volatility` | なし | 各々 `efficient_return` / `efficient_risk` に必須 |
+| `bl_market_weights` | 既定の市場ポートフォリオ | **Black-Litterman** の市場ポートフォリオウェイト（資産ID→比率、合計1）。省略時は既定値（米国株式 22.88% / 米国債券 21.40% / 除く株式 23.73% / 除く債券 31.98%） |
+| `bl_views` | `{}` | Black-Litterman の**絶対ビュー**（年率超過リターン。資産ID→比率）。空なら市場均衡のみ |
+| `bl_view_confidences` | `{}` | ビューの確信度（0–1）。`bl_omega_method="idzorek"` のとき必須 |
+| `bl_omega_method` | `default` | `default`（分散に比例）／ `idzorek`（確信度から算出） |
+| `bl_tau` | `0.05` | ビュー信頼係数（`0 < τ ≤ 1`）。**`omega="default"` では結果に影響しない** |
+| `bl_risk_aversion` | `null` | リスク回避度。省略時は市場ポートフォリオのリターンから逆算 |
 
-レスポンスには、**丸め前の生ウェイト `weights` と表示用 `clean_weights`**、年率換算の `metrics`（期待リターン・ボラティリティ・Sharpe）、入力 `params`、`warnings`（欠落行情報など）が含まれます。未取得資産・期間外・達成不能な目標値は **400（日本語メッセージ）** を返します。
+レスポンスには、**丸め前の生ウェイト `weights` と表示用 `clean_weights`**、年率換算の `metrics`（期待リターン・ボラティリティ・Sharpe・個別資産の年率リターン `asset_returns` / 年率ボラ `asset_volatilities`）、入力 `params`、`warnings`（欠落行情報など）が含まれます。未取得資産・期間外・達成不能な目標値は **400（日本語メッセージ）** を返します。
+
+> **Black-Litterman の入力例**: 市場ポートフォリオをウェイトで設定し、米国株式に年率 +3% の超過リターンビューを置く場合
+> ```bash
+> curl -X POST http://localhost:8000/api/optimizations -H 'Content-Type: application/json' -d '{
+>   "asset_ids": ["us_equity", "us_bond"],
+>   "expected_return_method": "black_litterman",
+>   "bl_market_weights": {"us_equity": 0.5, "us_bond": 0.5},
+>   "bl_views": {"us_equity": 0.03},
+>   "bl_omega_method": "default",
+>   "bl_tau": 0.05
+> }'
+> ```
 
 ## バックテスト API（`POST /api/backtests`）
 
@@ -239,7 +257,8 @@ curl -X POST http://localhost:8000/api/backtests \
 - **完了**: Yahoo Finance からのデータ取得 CLI（`fetch` → raw → 正規化 → processed → `export-csv`、取得履歴の SQLite 記録、raw/processed のスナップショットハッシュ連携）。
 - **完了**: リターン計算・年率換算（`app/domain/returns.py`）。単純／対数リターン、累積リターン（時間加重）、年率換算（geometric 既定）、年率ボラティリティ、頻度リサンプリング（単純=複利合成／対数=和）。定義は [`docs/design.md`](docs/design.md) §6.6 を参照。
 - **完了**: **データ確認 GUI（第1弾）**。`GET /api/data/series` を実データ（processed Parquet）へ配線し、series_type（adjusted_close / price / return / cumulative）と frequency（D/W/M）の再サンプリングを実装。`GET /api/assets` に各資産のデータ状態（取得可否・期間・行数・欠損・出所・取得日時・スナップショットハッシュ）を合成。フロントエンドの「データ」画面で 4 資産の状態一覧表と、選択資産の系列折れ線グラフ（Recharts）を確認できます。
-- **完了**: **最適化サービス（PyPortfolioOpt・`static_allocation`）**。`app/optimization/service.py` に HTTP・DB 非依存の純粋計算層を実装。手法（max_sharpe / min_volatility / efficient_risk / efficient_return）、期待リターン（mean_historical_return / capm_return / ema_historical_return）、共分散（sample_cov / semicovariance / ledoit_wolf）を選択可能。生ウェイトと表示用 `clean_weights` を併記。入力検証・solver 失敗は日本語エラーで返す。固定データの単体テスト付き。
+- **完了**: **最適化サービス（PyPortfolioOpt・`static_allocation`）**。`app/optimization/service.py` に HTTP・DB 非依存の純粋計算層を実装。手法（max_sharpe / min_volatility / efficient_risk / efficient_return）、期待リターン（mean_historical_return / capm_return / ema_historical_return / **black_litterman**）、共分散（sample_cov / semicovariance / ledoit_wolf）を選択可能。生ウェイトと表示用 `clean_weights` を併記。入力検証・solver 失敗は日本語エラーで返す。固定データの単体テスト付き。
+- **完了**: **Black-Litterman 期待リターン推定**。`expected_return_method="black_litterman"` で市場均衡の先行情報（Π=δ·Σ·w_mkt+rf）と投資家の絶対ビュー（年率超過リターン）を合成して事後分布を求める。**市場ポートフォリオはユーザーがウェイトで設定可能**（省略時の既定値: 米国株式 22.88% / 米国債券 21.40% / 除く株式 23.73% / 除く債券 31.98%）。ビュー不確実性（ω=default/idzorek）、τ、リスク回避度（省略時は市場から自動逆算）を指定可能。最適化画面（GUI）に BL 専用フォームを用意。ビューなしは市場均衡に一致。
 - **完了**: **最適化 API（`POST /api/optimizations`）**。`static_allocation` へ配線し、`OptimizationRequest`（対象資産・期間 `start`/`end`・手法・共分散・リスクフリー金利・制約）で同期実行。未取得資産・期間外は 400（日本語）、`OptimizationInputError` はユーザーに理解可能なメッセージで返す。`start`/`end` 入力によるルックアヘッド回避。API テスト付き。
 - **完了**: **分析 API（`GET /api/data/analysis`）と分析画面**。processed Parquet から複数資産の価格推移・累積リターン・ローリングボラティリティ・相関行列をまとめて返し（`app/domain/returns.py` の `rolling_volatility` / `correlation_matrix` を再利用）、フロントエンドで日次/週次/月次を切り替えて Recharts 折れ線＋相関ヒートマップを表示。未取得資産は除外して日本語警告を附す。
 - **完了**: **最適化画面（GUI）**。`POST /api/optimizations` を配線し、対象資産（取得済みのみ）・手法・期待リターン・共分散・期間・リスクフリー金利・ウェイト上下限を入力して、資産別ウェイト・**個別資産のリターン/リスク**・年率指標・警告を表示。

@@ -167,6 +167,20 @@ th {
   align-items: center;
 }
 
+/* Black-Litterman の資産別入力（市場ウェイト・ビュー・確信度） */
+.opt-form .bl-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.opt-form .bl-field span {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.opt-form .bl-field input {
+  flex: 0 0 7rem;
+}
+
 .opt-form button[type='submit'] {
   font: inherit;
   padding: 0.45rem 1.2rem;

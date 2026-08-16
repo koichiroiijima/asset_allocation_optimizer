@@ -204,3 +204,97 @@ def test_optimization_warnings_forwarded(client: TestClient, tmp_settings: Setti
     resp = client.post("/api/optimizations", json=_optimize_payload())
     assert resp.status_code == 200
     assert isinstance(resp.json()["warnings"], list)
+
+
+# ---------------------------------------------------------------- Black-Litterman ---
+
+
+def test_optimization_black_litterman_returns_weights(
+    client: TestClient, tmp_settings: Settings
+) -> None:
+    """BL 最適化: ビュー付きでウェイト・指標・params round-trip が返る。"""
+    _save_assets(ParquetPriceRepository(tmp_settings.processed_dir), ["us_equity", "us_bond"])
+    resp = client.post(
+        "/api/optimizations",
+        json=_optimize_payload(
+            expected_return_method="black_litterman",
+            bl_market_weights={"us_equity": 0.5, "us_bond": 0.5},
+            bl_views={"us_equity": 0.03},
+            bl_view_confidences={"us_equity": 0.8},
+            bl_omega_method="idzorek",
+            bl_tau=0.05,
+            bl_risk_aversion=3.0,
+        ),
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert set(body["weights"]) == {"us_equity", "us_bond"}
+    assert sum(body["weights"].values()) == pytest.approx(1.0, abs=1e-6)
+    assert np.isfinite(body["metrics"]["expected_annual_return"])
+    # params の round-trip（保存済み最適化の再現に使う）
+    assert body["params"]["expected_return_method"] == "black_litterman"
+    assert body["params"]["bl_views"] == {"us_equity": 0.03}
+    assert body["params"]["bl_omega_method"] == "idzorek"
+
+
+def test_optimization_black_litterman_market_default_sums_to_one(
+    client: TestClient, tmp_settings: Settings
+) -> None:
+    """BL で bl_market_weights を省略するとデフォルト（4資産合成）が使われる。"""
+    _save_assets(
+        ParquetPriceRepository(tmp_settings.processed_dir),
+        ["us_equity", "us_bond", "ex_us_equity", "ex_us_bond"],
+    )
+    resp = client.post(
+        "/api/optimizations",
+        json=_optimize_payload(
+            asset_ids=["us_equity", "us_bond", "ex_us_equity", "ex_us_bond"],
+            expected_return_method="black_litterman",
+        ),
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert sum(body["weights"].values()) == pytest.approx(1.0, abs=1e-6)
+
+
+def test_optimization_black_litterman_invalid_tau_returns_422(
+    client: TestClient, tmp_settings: Settings
+) -> None:
+    """bl_tau の値域外はスキーマ検証で 422。"""
+    _save_assets(ParquetPriceRepository(tmp_settings.processed_dir), ["us_equity", "us_bond"])
+    resp = client.post(
+        "/api/optimizations",
+        json=_optimize_payload(expected_return_method="black_litterman", bl_tau=0.0),
+    )
+    assert resp.status_code == 422
+
+
+def test_optimization_black_litterman_view_outside_assets_returns_422(
+    client: TestClient, tmp_settings: Settings
+) -> None:
+    """ビューの対象が選択資産外だと 422（OptimizationRequest 層の検証）。"""
+    _save_assets(ParquetPriceRepository(tmp_settings.processed_dir), ["us_equity", "us_bond"])
+    resp = client.post(
+        "/api/optimizations",
+        json=_optimize_payload(
+            expected_return_method="black_litterman",
+            bl_views={"ex_us_equity": 0.05},  # 未選択
+        ),
+    )
+    assert resp.status_code == 422
+    assert "ビューの対象は選択資産内" in resp.json()["detail"][0]["msg"]
+
+
+def test_optimization_black_litterman_market_weights_mismatch_returns_422(
+    client: TestClient, tmp_settings: Settings
+) -> None:
+    """市場ポートフォリオのキーが選択資産外だと 422。"""
+    _save_assets(ParquetPriceRepository(tmp_settings.processed_dir), ["us_equity", "us_bond"])
+    resp = client.post(
+        "/api/optimizations",
+        json=_optimize_payload(
+            expected_return_method="black_litterman",
+            bl_market_weights={"us_equity": 0.5, "ex_us_bond": 0.5},
+        ),
+    )
+    assert resp.status_code == 422
