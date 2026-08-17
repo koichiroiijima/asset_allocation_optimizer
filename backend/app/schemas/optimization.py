@@ -54,7 +54,7 @@ class StaticAllocationParams(BaseModel):
     # --- Black-Litterman 用（expected_return_method="black_litterman" のときのみ使用） ---
     # 市場ポートフォリオのウェイト（資産ID→比率、合計1）。None なら DEFAULT_MARKET_WEIGHTS。
     bl_market_weights: dict[str, float] | None = None
-    # 絶対ビュー（年率超過リターン。資産ID→期待超過リターン）。
+    # 絶対ビュー（年率期待リターン（r_f込み）の水準。資産ID→率）。
     bl_views: dict[str, float] = Field(default_factory=dict)
     # ビューの確信度（0-1）。bl_omega_method="idzorek" のとき必須。
     bl_view_confidences: dict[str, float] = Field(default_factory=dict)

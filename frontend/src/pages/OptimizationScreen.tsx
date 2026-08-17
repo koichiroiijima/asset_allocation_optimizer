@@ -580,7 +580,7 @@ export function OptimizationScreen() {
                 </label>
 
                 <label>
-                  <span>ビュー（年率期待超過リターン %）</span>
+                  <span>ビュー（年率期待リターン %、r_f 込み）</span>
                   {form.selectedAssetIds
                     .sort()
                     .map((a) => (
@@ -598,7 +598,8 @@ export function OptimizationScreen() {
                       </span>
                     ))}
                   <span className="hint-text">
-                    各資産の年率期待超過リターン（risk-free を除いた見方）。空欄はビューなし。
+                    この資産の年率期待リターン（リスクフリー金利 r_f を含む水準）。例: r_f=1% で 5% の
+                    リターンを見込むなら「5」と入力。空欄はビューなし。
                   </span>
                 </label>
 

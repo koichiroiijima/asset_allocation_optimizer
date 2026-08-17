@@ -169,7 +169,7 @@ def _compute_black_litterman(
 
     - 先行情報 pi は市場ポートフォリオのウェイト（`bl_market_weights`）と共分散から
       `market_implied_prior_returns`（= δ·Σ·w_m + rf）で算出。
-    - 絶対ビュー（`bl_views`、年率超過リターン）を `absolute_views` として渡す。
+    - 絶対ビュー（`bl_views`、年率期待リターン（r_f込み）の水準）を `absolute_views` として渡す。
     - ビューのない場合は市場均衡と同一の事後分布になる（Π がそのまま mu）。
     - omega は `bl_omega_method`（default=分散に比例／idzorek=確信度から）。idzorek は
       ビューキー順に `view_confidences` を並べて渡す。

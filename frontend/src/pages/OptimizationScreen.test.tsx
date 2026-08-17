@@ -318,7 +318,7 @@ describe('OptimizationScreen / Black-Litterman', () => {
     await selectBLAndAssets(user);
 
     expect(screen.getByText(/市場ポートフォリオのウェイト/)).toBeInTheDocument();
-    expect(screen.getByText(/ビュー（年率期待超過リターン/)).toBeInTheDocument();
+    expect(screen.getByText(/ビュー（年率期待リターン/)).toBeInTheDocument();
     expect(screen.getByText(/τ（ビュー信頼係数）/)).toBeInTheDocument();
     expect(screen.getByText(/リスク回避度/)).toBeInTheDocument();
   });
@@ -384,7 +384,7 @@ describe('OptimizationScreen / Black-Litterman', () => {
 
     // ビューを入力
     const viewInputs = screen
-      .getByText(/ビュー（年率期待超過リターン/)
+      .getByText(/ビュー（年率期待リターン/)
       .closest('label')!
       .querySelectorAll('input');
     await user.type(viewInputs[0], '3');
@@ -407,7 +407,7 @@ describe('OptimizationScreen / Black-Litterman', () => {
 
     // ビューを入力
     const viewInputs = screen
-      .getByText(/ビュー（年率期待超過リターン/)
+      .getByText(/ビュー（年率期待リターン/)
       .closest('label')!
       .querySelectorAll('input');
     await user.type(viewInputs[0], '3');
