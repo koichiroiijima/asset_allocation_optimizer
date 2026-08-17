@@ -155,11 +155,20 @@ function blMarketToRatio(rec: Record<string, string>): Record<string, number> {
   );
 }
 
-/** 確信度（0-1）はそのまま比率として送る（% ではない）。 */
+/**
+ * 確信度（0-1）をそのまま比率として送る（% ではない）。
+ * 空欄・NaN のみ除外し、0 は「かなり弱いビュー」として有効な値として送る。
+ */
 function blConfidenceOut(rec: Record<string, string>): Record<string, number> {
-  return Object.fromEntries(
-    Object.entries(blRecordFromForm(rec)).map(([k, v]) => [k, v]),
-  );
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(rec)) {
+    const trimmed = v.trim();
+    if (trimmed === '') continue; // 空欄は送らない
+    const n = Number(trimmed);
+    if (Number.isNaN(n)) continue;
+    out[k] = n;
+  }
+  return out;
 }
 
 /** フォーム入力を `OptimizationRequest` へ変換する。date input は既に YYYY-MM-DD 形式。 */
@@ -249,11 +258,20 @@ function validateForm(f: FormState): string | null {
       return `市場ポートフォリオのウェイトの合計を 100% にしてください（現在: ${total.toFixed(1)}%）`;
     }
     if (f.blOmegaMethod === 'idzorek') {
-      const missingConf = Object.keys(f.blViews).filter(
-        (a) => !f.blViewConfidences[a] || Number(f.blViewConfidences[a]) < 0 || Number(f.blViewConfidences[a]) > 1,
+      // ビューのある資産全てに確信度の入力が必要（0 は弱いビューとして許容、空欄は不可）
+      const viewAssets = Object.keys(f.blViews).filter((a) => f.blViews[a].trim() !== '');
+      const missingConf = viewAssets.filter(
+        (a) => !(f.blViewConfidences[a] && f.blViewConfidences[a].trim() !== ''),
       );
       if (missingConf.length > 0) {
-        return 'BL の ω=idzorek では各ビューに確信度（0-1）が必要です';
+        return `BL の ω=idzorek では、ビューのある資産すべてに確信度（0〜1）の入力が必要です（未入力: ${missingConf.join('、')}）`;
+      }
+      const invalidConf = viewAssets.filter((a) => {
+        const c = Number(f.blViewConfidences[a]);
+        return Number.isNaN(c) || c < 0 || c > 1;
+      });
+      if (invalidConf.length > 0) {
+        return 'BL の確信度は 0〜1 の範囲で入力してください';
       }
     }
   }
@@ -597,7 +615,7 @@ export function OptimizationScreen() {
 
                 {form.blOmegaMethod === 'idzorek' && (
                   <label>
-                    <span>ビューの確信度（0-1）</span>
+                    <span>ビューの確信度（0〜1・ビューのある資産に入力必須）</span>
                     {form.selectedAssetIds
                       .filter((a) => form.blViews[a] && form.blViews[a].trim() !== '')
                       .map((a) => (
@@ -608,6 +626,7 @@ export function OptimizationScreen() {
                             step="0.05"
                             min={0}
                             max={1}
+                            placeholder="必須"
                             value={form.blViewConfidences[a] ?? ''}
                             onChange={(e) =>
                               update('blViewConfidences', {
@@ -616,8 +635,13 @@ export function OptimizationScreen() {
                               })
                             }
                           />
+                          <span className="hint-text">0=ほぼ不確実 / 1=確実</span>
                         </span>
                       ))}
+                    <span className="hint-text">
+                      ω=idzorek では、ビューのある資産すべてに 0〜1 の確信度を入力してください
+                      （未入力のままだと実行できません）。
+                    </span>
                   </label>
                 )}
 

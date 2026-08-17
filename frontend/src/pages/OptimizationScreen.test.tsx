@@ -376,6 +376,64 @@ describe('OptimizationScreen / Black-Litterman', () => {
     expect(screen.getByText(/ビューの確信度/)).toBeInTheDocument();
   });
 
+  it('idzorek でビューあり・確信度未入力のまま実行するとクライアント検証エラー', async () => {
+    const fetchMock = stubFetch();
+    const user = userEvent.setup();
+    renderWithProvider(<OptimizationScreen />);
+    await selectBLAndAssets(user);
+
+    // ビューを入力
+    const viewInputs = screen
+      .getByText(/ビュー（年率期待超過リターン/)
+      .closest('label')!
+      .querySelectorAll('input');
+    await user.type(viewInputs[0], '3');
+
+    // ω=idzorek に変更（確信度は未入力のまま）
+    const omegaSelect = screen.getByRole('combobox', { name: /ω（ビュー不確実性）/ });
+    await user.selectOptions(omegaSelect, 'idzorek');
+
+    await user.click(screen.getByRole('button', { name: '最適化を実行' }));
+    // サーバへ送らず、クライアント検証で確信度未入力を明示する
+    await screen.findByText(/ω=idzorek では、ビューのある資産すべてに確信度/);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).includes('/optimizations')).length).toBe(0);
+  });
+
+  it('idzorek で確信度を入力すると bl_view_confidences が POST に含まれる', async () => {
+    const fetchMock = stubFetch({ body: BL_OPTIMIZATION_BODY, status: 200 });
+    const user = userEvent.setup();
+    renderWithProvider(<OptimizationScreen />);
+    await selectBLAndAssets(user);
+
+    // ビューを入力
+    const viewInputs = screen
+      .getByText(/ビュー（年率期待超過リターン/)
+      .closest('label')!
+      .querySelectorAll('input');
+    await user.type(viewInputs[0], '3');
+
+    // ω=idzorek に変更し、確信度を入力
+    const omegaSelect = screen.getByRole('combobox', { name: /ω（ビュー不確実性）/ });
+    await user.selectOptions(omegaSelect, 'idzorek');
+    const confInputs = screen
+      .getByText(/ビューの確信度/)
+      .closest('label')!
+      .querySelectorAll('input');
+    await user.type(confInputs[0], '0.8');
+
+    await user.click(screen.getByRole('button', { name: '最適化を実行' }));
+    await waitFor(() => expect(screen.getByText('0.3000')).toBeInTheDocument());
+
+    const optCalls = fetchMock.mock.calls.filter(([input]) =>
+      String(input).includes('/optimizations'),
+    );
+    const body = JSON.parse(String(optCalls[0][1]?.body));
+    expect(body.bl_omega_method).toBe('idzorek');
+    // ビューのある資産の確信度が送られる（0〜1 の値をそのまま）
+    expect(body.bl_view_confidences).toBeDefined();
+    expect(Object.values(body.bl_view_confidences)[0]).toBeCloseTo(0.8, 5);
+  });
+
   it('市場ウェイトの合計が100%でない場合はバリデーションエラー', async () => {
     stubFetch();
     const user = userEvent.setup();
