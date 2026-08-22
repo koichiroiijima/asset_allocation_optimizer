@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { useCompare } from '../compare/CompareContext';
 import { makeResultId, type StoredResult } from '../compare/types';
+import { useAnalysis } from '../hooks/useAnalysis';
 import { useAssets } from '../hooks/useAssets';
 import {
   BL_DEFAULT_MARKET_WEIGHTS,
+  type AnalysisSpec,
   type Asset,
   type BlOmegaMethod,
   type CovarianceMethod,
@@ -307,6 +309,26 @@ export function BlOptimizationScreen() {
     [assets],
   );
 
+  // ビュー入力の参考情報として、選択資産の EMA 年率リターンを取得する。
+  // 資産未選択の間は spec を null にして取得しない。
+  const analysisSpec = useMemo<AnalysisSpec | null>(
+    () =>
+      form.selectedAssetIds.length > 0
+        ? { asset_ids: form.selectedAssetIds, frequency: 'D' }
+        : null,
+    [form.selectedAssetIds],
+  );
+  const { analysis } = useAnalysis(analysisSpec);
+
+  // 資産ID → EMA 年率リターン（比率。null は計算不能）の参照用マップ。
+  const emaReturnMap = useMemo(() => {
+    const map: Record<string, number | null> = {};
+    for (const s of analysis?.stats ?? []) {
+      map[s.asset_id] = s.ema_annual_return;
+    }
+    return map;
+  }, [analysis]);
+
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
@@ -566,7 +588,13 @@ export function BlOptimizationScreen() {
                     .sort()
                     .map((a) => (
                       <span key={a} className="bl-field">
-                        <span className="hint-text">{assetLabel(a, assets?.assets)}</span>
+                        <span className="hint-text">
+                          {assetLabel(a, assets?.assets)}
+                          {' '}
+                          {emaReturnMap[a] != null
+                            ? `（EMA: ${(emaReturnMap[a]! * 100).toFixed(1)}%・参考）`
+                            : '（EMA: —）'}
+                        </span>
                         <input
                           type="number"
                           step="0.1"
@@ -580,7 +608,8 @@ export function BlOptimizationScreen() {
                     ))}
                   <span className="hint-text">
                     この資産の年率期待リターン（リスクフリー金利 r_f を含む水準）。例: r_f=1% で 5% の
-                    リターンを見込むなら「5」と入力。空欄はビューなし。
+                    リターンを見込むなら「5」と入力。空欄はビューなし。EMA は全期間の指数加重平均
+                    リターン（年率）で、ビュー入力の参考値。
                   </span>
                 </label>
 
