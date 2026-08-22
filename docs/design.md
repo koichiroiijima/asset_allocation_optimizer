@@ -104,7 +104,7 @@ docs/design.md      # 本メモ
 | `data_root` / `output_root` | ../data / ../outputs | ルートからの相対 |
 | `sqlite_path` | data_root/app.db | 未指定時は data_root 配下 |
 | `asset_mapping_file` | app/config/assets.default.json | 資産マッピング |
-| `price_max_staleness_days` | 5 | 価格陳腐化の最大許容日数 |
+| `price_max_staleness_days` | 5 | 価格陳腐化の最大許容日数（暦日。現状は設定のみ定義・未適用） |
 | `annualization_factor` | 252 | 日次→年率換算係数 |
 | `cors_origins` | http://localhost:5173 | ローカル開発のみ |
 
@@ -148,6 +148,8 @@ raw_snapshot_hash, processed_snapshot_hash
 - 4資産を同一通貨・同一頻度・同一営業日基準に整列する。基準カレンダーを定め、**inner join だけで観測日を削除しない**。
 - 各資産の履歴開始日と、4系列の共通履歴開始日を明示。上場前データを推測で補完しない。
 - 保有資産評価では直近価格を使用するが、`price_max_staleness_days`（既定5日）を超えたら警告または取引停止にする。
+- 価格陳腐化の判定: 各資産の直近データ日（`AssetDataStatus.end`）から今日までの**暦日数**が `price_max_staleness_days`（既定5日）を超えたら陳腐化（stale）とみなす。（例: 金曜取得 → 翌火曜も5日以内なら正常。営業日カレンダーは導入しない）
+- 適用方針（**未実装**）: 陳腐化資産は ①データ画面・最適化・バックテストの結果に日本語警告として顕在化し、②将来の売買実行では警告または取引停止の対象とする。②の実装先は、現状のコードには売買実行システムがなく、バックテストの再最適化（`rebalance_allocation`、§7.3）か将来の取引機能になる。設定値のみ定義の現状は TODO.md に維持する。
 - リターン計算（年率換算 `annualization_factor=252`）と評価計算のカレンダー規則を分けて記録する。
 - ETF のバックテスト総収益には原則として Adjusted Close を使うが、プロバイダーごとの定義をメタデータに残す。売買執行・スリッページ・回転率には未調整の取引価格を別途使う。
 - 企業行動・分配金・シンボル変更・ETF償還は方針を記録。代替ETFへ自動乗り換えて連続系列を作らない。
@@ -347,3 +349,4 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
 - **2026-08-16** — Black-Litterman 期待リターン推定を実装（`expected_return_method="black_litterman"`）。ユーザー決定: ①市場ポートフォリオは**ウェイト（割合）で入力**（時価総額ではなく。デフォルト = 米国株式 22.88% / 米国債券 21.40% / 除く株式 23.73% / 除く債券 31.98%。時価総額 126.7/145.1 兆USD と株式/債券配分から合成を scheme の `DEFAULT_MARKET_WEIGHTS` に定数化）、②ビューは**絶対ビュー（年率期待リターン（r_f込み）の水準）のみ**、③フルスコープ（backend+frontend+test+docs）。`_compute_black_litterman`（`app/optimization/service.py`）を新設し、先行情報 Π=δ·Σ·w_mkt+rf（`bl_risk_aversion` 省略時は市場ポートフォリオのリターンから逆算）、絶対ビュー、ω=default/idzorek、τ を `BlackLittermanModel` に流して事後 μ/Σ を算出。ビュー 0 件は市場均衡に一致（PyPortfolioOpt は空ビュー非対応のため専用分岐で μ=Π・Σ を返す）。スキーマに `bl_*` フィールド＋validator（τ 範囲・リスク回避度正・確信度 0-1・市場ウェイト合計≈1・ビュー対象が選択資産内）を追加。フロントは最適化画面に BL 条件フォーム（市場ウェイト・ビュー・ω/τ/リスク回避度）とデフォルト値表示。**`omega="default"` では τ は結果に影響しない**（PyPortfolioOpt の `default_omega` と事後式の分子が打ち消し合う仕様）ことをテストで検証し明記。backend テスト +6件（test_optimization）、+5件（test_optimizations_api）、+1件（test_backtests_api へ BL 再最適化）、frontend テスト +5件（OptimizationScreen）を追加。
 - **2026-08-17** — BL の表記・UX を統一（実装ロジックは不変）。①BL 絶対ビューの説明を「年率期待超過リターン」から「**年率期待リターン（r_f込み）の水準**」へ統一（UI/README/docs、PyPortfolioOpt の `market_implied_prior_returns` が Π に `+r_f` する実装と整合）。具体例（r_f=1% で 5% 見込みなら「5」、超過 4% ではない）を UI ヒントと docs に明記。②BL ω=idzorek でビューのある資産に確信度が未入力のまま実行する失敗を UX 改善（クライアント検証を強化し、未入力資産名を明示した日本語エラーを表示。確信度 0 は弱いビューとして許容）。テスト +2件（OptimizationScreen）。
 - **2026-08-22** — **最適化画面をタブ分割**（ユーザー指示）。ヘッダーナビを6タブ化し、**「最適化」と「最適化（BL）」を分離**。最適化タブは `git show 09a6b61^` を使って BL 追加前の状態へ戻し（BL 機能を全て削除・期待リターン選択肢から black_litterman を除外）、新設の最適化（BL）タブは `BlOptimizationScreen.tsx` として BL 専用フォームを提供（**期待リターンは black_litterman 固定・共分散は選択可能**）。BL 結果は従来どおり `kind:'optimization'` で保存されるため、バックテストの「再最適化元の最適化」（`kind==='optimization'` フィルタ）で BL 結果も選択可能（compare/types・indicators・BacktestScreen は無変更）。テスト: `OptimizationScreen.test.tsx`（7件）・`BlOptimizationScreen.test.tsx`（7件・固定化検証含む）・`App.test.tsx`（タブ切替 +1件）。backend は変更なし。
+- **2026-08-23** — 価格陳腐化（`price_max_staleness_days`）の適用方針を docs に明記（ユーザー決定: 今回は**コード実装をせず設計方針のみ記録**、判定は**暦日**）。表4の設定説明を「暦日・現状は設定のみ定義・未適用」へ補強し、§6 に判定式（`AssetDataStatus.end` からの暦日数 > 設定値）と適用方針（①警告として顕在化、②将来の売買実行で警告または取引停止）を追記。営業日カレンダーは導入しない。TODO.md の該当行は「設定のみ定義・適用は未実装」のまま維持。
