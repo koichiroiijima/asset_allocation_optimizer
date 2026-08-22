@@ -37,4 +37,11 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: '最適化' }));
     expect(screen.getByRole('heading', { name: '最適化' })).toBeInTheDocument();
   });
+
+  it('「最適化（BL）」タブで BL 画面に切り替えられる', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: '最適化（BL）' }));
+    expect(screen.getByRole('heading', { name: '最適化（BL）' })).toBeInTheDocument();
+  });
 });

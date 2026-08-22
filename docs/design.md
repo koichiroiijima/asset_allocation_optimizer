@@ -66,7 +66,7 @@ frontend/
     api/            # types.ts / client.ts（fetch ラッパー）/ index.ts
     components/     # Header, HealthCheck
     hooks/          # useHealth, useAssets, useSeries, useAnalysis
-    pages/          # Data / Analysis（実装済み）/ Optimization / Backtest / Compare（5画面）
+    pages/          # Data / Analysis（実装済み）/ Optimization / BlOptimization / Backtest / Compare（6画面）
     App.tsx / main.tsx / index.css
   tests/            # setup.ts / api.test.ts / DataScreen.test.tsx / App.test.tsx ほか
 data/               # raw / processed / fixtures（git 管理外）
@@ -86,7 +86,7 @@ docs/design.md      # 本メモ
 ### 3.2 フロントエンド
 
 - **API型と画面状態を分離**: `src/api/types.ts` にサーバー契約の型を定義し、`client.ts` の fetch ラッパーを介す。画面は型付きのクライアントのみを使う。
-- **画面は5つ**: データ / 分析 / 最適化 / バックテスト / 比較・保存。データ画面（資産一覧＋系列グラフ）・**分析画面**（`useAnalysis` フック＋`getAnalysis`）・**最適化画面**（`OptimizationScreen.tsx`＋`optimize`）・**バックテスト画面**（`BacktestScreen.tsx`＋`runBacktest`）は実装済み。比較・保存画面（`CompareScreen.tsx`・`compare/CompareContext.tsx`）は実装済み（実行結果をグローバル保持・JSON/CSV エクスポート）。
+- **画面は6つ**: データ / 分析 / 最適化 / **最適化（BL）** / バックテスト / 比較・保存。データ画面（資産一覧＋系列グラフ）・**分析画面**（`useAnalysis` フック＋`getAnalysis`）・**最適化画面**（`OptimizationScreen.tsx`、BL 除外）・**最適化（BL）画面**（`BlOptimizationScreen.tsx`、BL 専用・期待リターン固定）・**バックテスト画面**（`BacktestScreen.tsx`＋`runBacktest`）は実装済み。比較・保存画面（`CompareScreen.tsx`・`compare/CompareContext.tsx`）は実装済み（実行結果をグローバル保持・JSON/CSV エクスポート）。
 - **状態管理**: 現段階は React 標準の state + カスタムフック（`useHealth` / `useAssets` / `useSeries` / `useAnalysis`）。必要になった段階で検討。
 
 ## 4. 設定モデル（`config/settings.py`）
@@ -297,13 +297,14 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
 
 初期版の公開範囲は **localhost 利用のみ**。ネットワーク公開時は認証・認可、CORS許可元、レート制限、APIキーの秘密管理、入力サイズ制限、監査ログを設計してから有効化する。
 
-## 9. GUI 画面（初期5画面）
+## 9. GUI 画面（初期6画面）
 
 1. **データ**（実装済み）: 4資産の候補・データソース・期間・欠損・取得日時・価格種別を確認（series_type / frequency 選択、系列折れ線）
 2. **分析**（実装済み）: 価格推移・累積リターン・ローリングボラティリティ・相関ヒートマップ（frequency D/W/M 切り替え、取得済み資産のみ対象）
-3. **最適化**（実装済み）: 手法・期待リターン・共分散・期間・制約・リスクフリー金利 → ウェイト・期待利得・リスク・Sharpe（`POST /api/optimizations` 配線）
-4. **バックテスト**（実装済み）: 対象資産・固定ウェイト・リバランス頻度・初期資金・コスト率 → 累積資産・ドローダウン・年次成績・配分推移・取引一覧（`POST /api/backtests` 配線）
-5. **比較・保存**（実装済み）: 最適化・バックテストの実行結果を「比較に追加」でグローバル保持（`CompareContext`、最大50件・メモリ保持）し、比較画面で種別ごとの指標比較（最良値強調・null は「—」）・ラベル編集・削除と、JSON（実行結果一式）/ CSV（指標比較表）エクスポートができる
+3. **最適化**（実装済み）: 手法・期待リターン（BL 除く）・共分散・期間・制約・リスクフリー金利 → ウェイト・期待利得・リスク・Sharpe（`POST /api/optimizations` 配線）
+4. **最適化（BL）**（実装済み）: Black-Litterman 専用フォーム（市場ポートフォリオ・絶対ビュー・確信度・ω・τ・リスク回避度。期待リターンは black_litterman 固定・共分散は選択可能）。結果は `kind:'optimization'` で保存されバックテストの再最適化元にも選択可
+5. **バックテスト**（実装済み）: 対象資産・固定ウェイト・リバランス頻度・初期資金・コスト率 → 累積資産・ドローダウン・年次成績・配分推移・取引一覧（`POST /api/backtests` 配線）
+6. **比較・保存**（実装済み）: 最適化・バックテストの実行結果を「比較に追加」でグローバル保持（`CompareContext`、最大50件・メモリ保持）し、比較画面で種別ごとの指標比較（最良値強調・null は「—」）・ラベル編集・削除と、JSON（実行結果一式）/ CSV（指標比較表）エクスポートができる
 
 各画面で、使用したデータスナップショット・通貨方針・シグナル日/約定日規則・警告を結果の近くに表示する。
 
@@ -345,3 +346,4 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
 - **2026-08-15** — バックテスト・最適化画面を拡張（6要件）。①バックテストの対象資産選択を最適化と同じ multi-select ドロップダウンに統一。②最適化画面の `efficient_return` の「目標リターンは最適化に使う…」説明文を削除（目標値入力は残す）。③最適化結果に個別資産の年率リターン/リスクを追加（`OptimizationMetrics` の `asset_returns`/`asset_volatilities`、最適化に使った `mu`・`sqrt(diag(sigma))` から算出）し、最適化画面に資産別統計表を表示。④保存済み最適化（`StoredResult.request` に `OptimizationRequest` を保持）をバックテストから選択して呼び出し可能に。⑤リバランス頻度に年次（`Y`、年度末シグナル・翌観測日約定）を追加。⑥「リバランス時に再最適化」チェックで `rebalance_allocation`（各シグナル日まで `prices.loc[:sig]` スライス）により再最適化。失敗時は**直前ウェイト継続＋日本語警告**（ユーザー決定）。`_simulate` を実行日→ウェイト（`weights_by_exec`）対応に拡張し、`BacktestParams` に `reoptimize`/`optimization_params`、`BacktestResult` に `rebalance_weights` を追加。再最適化時もルックアヘッド検査テストで検証。バックテストのエンジン・スキーマ・API・GUI・テスト（backend 145件・frontend 32件 green）を更新。
 - **2026-08-16** — Black-Litterman 期待リターン推定を実装（`expected_return_method="black_litterman"`）。ユーザー決定: ①市場ポートフォリオは**ウェイト（割合）で入力**（時価総額ではなく。デフォルト = 米国株式 22.88% / 米国債券 21.40% / 除く株式 23.73% / 除く債券 31.98%。時価総額 126.7/145.1 兆USD と株式/債券配分から合成を scheme の `DEFAULT_MARKET_WEIGHTS` に定数化）、②ビューは**絶対ビュー（年率期待リターン（r_f込み）の水準）のみ**、③フルスコープ（backend+frontend+test+docs）。`_compute_black_litterman`（`app/optimization/service.py`）を新設し、先行情報 Π=δ·Σ·w_mkt+rf（`bl_risk_aversion` 省略時は市場ポートフォリオのリターンから逆算）、絶対ビュー、ω=default/idzorek、τ を `BlackLittermanModel` に流して事後 μ/Σ を算出。ビュー 0 件は市場均衡に一致（PyPortfolioOpt は空ビュー非対応のため専用分岐で μ=Π・Σ を返す）。スキーマに `bl_*` フィールド＋validator（τ 範囲・リスク回避度正・確信度 0-1・市場ウェイト合計≈1・ビュー対象が選択資産内）を追加。フロントは最適化画面に BL 条件フォーム（市場ウェイト・ビュー・ω/τ/リスク回避度）とデフォルト値表示。**`omega="default"` では τ は結果に影響しない**（PyPortfolioOpt の `default_omega` と事後式の分子が打ち消し合う仕様）ことをテストで検証し明記。backend テスト +6件（test_optimization）、+5件（test_optimizations_api）、+1件（test_backtests_api へ BL 再最適化）、frontend テスト +5件（OptimizationScreen）を追加。
 - **2026-08-17** — BL の表記・UX を統一（実装ロジックは不変）。①BL 絶対ビューの説明を「年率期待超過リターン」から「**年率期待リターン（r_f込み）の水準**」へ統一（UI/README/docs、PyPortfolioOpt の `market_implied_prior_returns` が Π に `+r_f` する実装と整合）。具体例（r_f=1% で 5% 見込みなら「5」、超過 4% ではない）を UI ヒントと docs に明記。②BL ω=idzorek でビューのある資産に確信度が未入力のまま実行する失敗を UX 改善（クライアント検証を強化し、未入力資産名を明示した日本語エラーを表示。確信度 0 は弱いビューとして許容）。テスト +2件（OptimizationScreen）。
+- **2026-08-22** — **最適化画面をタブ分割**（ユーザー指示）。ヘッダーナビを6タブ化し、**「最適化」と「最適化（BL）」を分離**。最適化タブは `git show 09a6b61^` を使って BL 追加前の状態へ戻し（BL 機能を全て削除・期待リターン選択肢から black_litterman を除外）、新設の最適化（BL）タブは `BlOptimizationScreen.tsx` として BL 専用フォームを提供（**期待リターンは black_litterman 固定・共分散は選択可能**）。BL 結果は従来どおり `kind:'optimization'` で保存されるため、バックテストの「再最適化元の最適化」（`kind==='optimization'` フィルタ）で BL 結果も選択可能（compare/types・indicators・BacktestScreen は無変更）。テスト: `OptimizationScreen.test.tsx`（7件）・`BlOptimizationScreen.test.tsx`（7件・固定化検証含む）・`App.test.tsx`（タブ切替 +1件）。backend は変更なし。

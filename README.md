@@ -13,7 +13,7 @@
 | ディレクトリ | 内容 |
 | --- | --- |
 | `backend/` | FastAPI + Python（api / domain / data / optimization / backtest / schemas） |
-| `frontend/` | React + TypeScript + Vite（5画面、Recharts） |
+| `frontend/` | React + TypeScript + Vite（6画面、Recharts） |
 | `data/` | 取得データ（raw / processed / fixtures）。`data/*` は git 管理外 |
 | `outputs/` | 最適化・バックテスト成果物。git 管理外 |
 | `docs/design.md` | 設計メモ |
@@ -253,15 +253,15 @@ curl -X POST http://localhost:8000/api/backtests \
 
 初期ひな型（データが動き、テストが通る全体の骨格）に加え、4資産のデータ取得 CLI、**データ確認 GUI（第1弾）**、**分析画面・最適化 API・最適化画面・バックテスト** まで実装済みです。具体的には:
 
-- **完了**: プロジェクト構造、設定管理（Pydantic Settings）、データレコードと repository 抽象（Parquet + SQLite 索引 + スナップショットハッシュ）、API スキーマとルート、フロントエンド5画面の骨格、テスト基盤。
+- **完了**: プロジェクト構造、設定管理（Pydantic Settings）、データレコードと repository 抽象（Parquet + SQLite 索引 + スナップショットハッシュ）、API スキーマとルート、フロントエンド6画面の骨格、テスト基盤。
 - **完了**: Yahoo Finance からのデータ取得 CLI（`fetch` → raw → 正規化 → processed → `export-csv`、取得履歴の SQLite 記録、raw/processed のスナップショットハッシュ連携）。
 - **完了**: リターン計算・年率換算（`app/domain/returns.py`）。単純／対数リターン、累積リターン（時間加重）、年率換算（geometric 既定）、年率ボラティリティ、頻度リサンプリング（単純=複利合成／対数=和）。定義は [`docs/design.md`](docs/design.md) §6.6 を参照。
 - **完了**: **データ確認 GUI（第1弾）**。`GET /api/data/series` を実データ（processed Parquet）へ配線し、series_type（adjusted_close / price / return / cumulative）と frequency（D/W/M）の再サンプリングを実装。`GET /api/assets` に各資産のデータ状態（取得可否・期間・行数・欠損・出所・取得日時・スナップショットハッシュ）を合成。フロントエンドの「データ」画面で 4 資産の状態一覧表と、選択資産の系列折れ線グラフ（Recharts）を確認できます。
 - **完了**: **最適化サービス（PyPortfolioOpt・`static_allocation`）**。`app/optimization/service.py` に HTTP・DB 非依存の純粋計算層を実装。手法（max_sharpe / min_volatility / efficient_risk / efficient_return）、期待リターン（mean_historical_return / capm_return / ema_historical_return / **black_litterman**）、共分散（sample_cov / semicovariance / ledoit_wolf）を選択可能。生ウェイトと表示用 `clean_weights` を併記。入力検証・solver 失敗は日本語エラーで返す。固定データの単体テスト付き。
-- **完了**: **Black-Litterman 期待リターン推定**。`expected_return_method="black_litterman"` で市場均衡の先行情報（Π=δ·Σ·w_mkt+rf）と投資家の絶対ビュー（年率期待リターン（r_f込み）の水準）を合成して事後分布を求める。**市場ポートフォリオはユーザーがウェイトで設定可能**（省略時の既定値: 米国株式 22.88% / 米国債券 21.40% / 除く株式 23.73% / 除く債券 31.98%）。ビュー不確実性（ω=default/idzorek）、τ、リスク回避度（省略時は市場から自動逆算）を指定可能。最適化画面（GUI）に BL 専用フォームを用意。ビューなしは市場均衡に一致。
+- **完了**: **Black-Litterman 期待リターン推定**。`expected_return_method="black_litterman"` で市場均衡の先行情報（Π=δ·Σ·w_mkt+rf）と投資家の絶対ビュー（年率期待リターン（r_f込み）の水準）を合成して事後分布を求める。**市場ポートフォリオはユーザーがウェイトで設定可能**（省略時の既定値: 米国株式 22.88% / 米国債券 21.40% / 除く株式 23.73% / 除く債券 31.98%）。ビュー不確実性（ω=default/idzorek）、τ、リスク回避度（省略時は市場から自動逆算）を指定可能。**最適化（BL）タブ（GUI）に BL 専用フォームを用意**（期待リターンは black_litterman 固定）。ビューなしは市場均衡に一致。
 - **完了**: **最適化 API（`POST /api/optimizations`）**。`static_allocation` へ配線し、`OptimizationRequest`（対象資産・期間 `start`/`end`・手法・共分散・リスクフリー金利・制約）で同期実行。未取得資産・期間外は 400（日本語）、`OptimizationInputError` はユーザーに理解可能なメッセージで返す。`start`/`end` 入力によるルックアヘッド回避。API テスト付き。
 - **完了**: **分析 API（`GET /api/data/analysis`）と分析画面**。processed Parquet から複数資産の価格推移・累積リターン・ローリングボラティリティ・相関行列をまとめて返し（`app/domain/returns.py` の `rolling_volatility` / `correlation_matrix` を再利用）、フロントエンドで日次/週次/月次を切り替えて Recharts 折れ線＋相関ヒートマップを表示。未取得資産は除外して日本語警告を附す。
-- **完了**: **最適化画面（GUI）**。`POST /api/optimizations` を配線し、対象資産（取得済みのみ）・手法・期待リターン・共分散・期間・リスクフリー金利・ウェイト上下限を入力して、資産別ウェイト・**個別資産のリターン/リスク**・年率指標・警告を表示。
+- **完了**: **最適化画面（GUI）と最適化（BL）画面**。ヘッダーナビを **「最適化」と「最適化（BL）」の2タブ**に分割。**最適化タブ**には通常手法（手法・期待リターン（BL 除く）・共分散・期間・リスクフリー金利・ウェイト上下限を入力）を、**最適化（BL）タブ**には BL 専用フォーム（市場ポートフォリオ・絶対ビュー・確信度・ω・τ・リスク回避度。期待リターンは black_litterman 固定）を配置。両タブとも資産別ウェイト・**個別資産のリターン/リスク**・年率指標・警告を表示。
 - **完了**: **バックテスト（固定ウェイト/再最適化・エンジン+API+画面）**。`app/backtest/engine.py` の `run_backtest` がリバランスを計算し（**次営業日約定でルックアヘッド回避**）、`POST /api/backtests` と「バックテスト」画面（固定ウェイト・リバランス頻度（日次/週次/月次/年次）・初期資金・コスト率・**再最適化元の最適化（比較一覧から選択）**・再最適化チェックを入力 → 累積資産/ドローワウン/配分推移の折れ線・評価指標・年次成績・**リバランス時の採用ウェイト**・取引一覧を表示）に配線。`rebalance_allocation`（各シグナル日までスライスして最適化）によりリバランス時再最適化に対応し、失敗時は直前ウェイト継続＋日本語警告。評価指標（累積/年率リターン・ボラ・Sharpe/Sortino/Calmar・最大ドローワウン・勝率・回転率・手数料）は未定義を null で返す。対象資産は最適化と同じ multi-select。
 - **完了**: **比較・保存画面**。最適化・バックテストの実行結果を「比較に追加」でブラウザ内（`CompareContext`・メモリ・最大50件）にグローバル保持し、「比較・保存」画面で種別ごとの指標比較（最良値強調・null は「—」）・ラベル編集・削除と、JSON（実行結果一式）/ CSV（指標比較表）エクスポートができる。最適化の保存は再現用リクエスト（`OptimizationRequest`）を含め、バックテストの再最適化で呼び出せる。保存はブラウザ内のみ（ページ再読込で消える）ことを UI に明示。
 - **予定（後続工程）**: バックテスト実行結果の再現可能な保存（スナップショット・コードバージョン）、`/api/jobs` からの data_fetch 配線、Black-Litterman の**相対ビュー（Q/P 行列）**・`omega="manual"`・市場時価総額（AUM）入力。
