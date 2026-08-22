@@ -30,6 +30,7 @@ backend/
       routes/
         analysis.py     # GET /api/data/analysis（複数資産の分析データ）
         optimizations.py# POST /api/optimizations（static_allocation の同期配線）
+        backtests.py    # POST /api/backtests（固定ウェイト＋再最適化の同期配線）
         assets.py / series.py / jobs.py / runs.py
     config/
       settings.py   # Pydantic Settings + validate_settings + get_settings（lru_cache）
@@ -54,8 +55,8 @@ backend/
     optimization/
       service.py    # static_allocation と rebalance_allocation 実装済み
     backtest/
-      engine.py     # スタブ（後続）
-    schemas/        # Pydantic モデル（asset / dataseries / series / analysis / optimization / job）
+      engine.py     # run_backtest 実装済み（固定ウェイト＋再最適化。次営業日約定でルックアヘッド回避）
+    schemas/        # Pydantic モデル（asset / dataseries / series / analysis / optimization / backtest / job）
     main.py         # create_app(settings=None) アプリファクトリ
     __init__.py     # __version__ = "0.1.0"
   tests/            # pytest 一式（test_cli / test_yahoo_provider / test_normalize / test_pipeline / test_export / test_analysis_api / test_optimizations_api ほか）
@@ -227,7 +228,7 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
 - **入力**: `asset_ids`（必須・min_length=1）、`start` / `end`（期間）、`frequency`（D/W/M・既定D）、`window`（ローリング窓・既定60・5〜1000）。
 - **共通ヘルパー**: `app/api/route_helpers.py` の `load_price_matrix(repo, asset_ids, start, end)` で複数資産の adjusted_close を**外側 union の日付インデックス**で整列した価格行列を作る。観測日が資産ごとに異なるセルは NaN のまま（推測補完しない）。未取得資産（`FileNotFoundError`）・期間外（空データ）は除外し、日本語警告に積む。analysis と optimizations の両ルートで共用する（設計方針: 例外を握りつぶさず警告として顕在化）。
 - **計算**: `frequency != D` のとき価格を `resample_prices` で先に再サンプリング（各期間の最終観測値）。その後、価格行列 → `simple_return`（列=資産）→ `cumulative_return` / `rolling_volatility(window, annualization_factor)` / `correlation_matrix` を適用。相関は共通日付に整列したリターン行列から計算し、単一資産は 1×1。
-- **レスポンス**: `AnalysisResponse`（`app/schemas/analysis.py`）= `currency`（`portfolio_base_currency`）/ `assets_used`（実際に使った資産）/ `window` / `prices` / `cumulative` / `rolling_volatility`（各 `AssetSeries`）/ `correlation`（`CorrelationMatrix`：欠損セルは `null`）/ `warnings`。
+- **レスポンス**: `AnalysisResponse`（`app/schemas/analysis.py`）= `currency`（`instrument_trading_currency`、実データの通貨 USD）/ `assets_used`（実際に使った資産）/ `window` / `prices` / `cumulative` / `rolling_volatility`（各 `AssetSeries`）/ `correlation`（`CorrelationMatrix`：欠損セルは `null`）/ `warnings`。
 - **警告（日本語）**: 未取得・期間外の資産は除外して警告、全資産が使えない場合は空レスポンス＋警告、1資産のみのときは「相関の解釈には2資産以上必要です。」
 - **フロントエンド**: `frontend/src/hooks/useAnalysis.ts`（`AnalysisSpec` 変更で再取得）と `AnalysisScreen.tsx`（価格・累積・ローリングボラを Recharts 折れ線、相関をヒートマップ表で表示。頻度切り替え、取得済み資産のみ対象）。`src/api/client.ts` の `getAnalysis` / `analysisQuery`。
 
@@ -263,7 +264,7 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
   - 指定期間に価格データが無い場合も 400。
   - `OptimizationInputError`（データ不足・制約矛盾・非正価格・達成不能な目標値など）は `str(exc)` をそのまま `HTTPException(detail=...)` へ変換（ユーザーに理解可能な日本語のまま顕在化）。
 - **警告の連結**: ルート層で検出した欠落行情報（`load_warnings`）をサービス層の `warnings` の先頭に連結して UI に返す。
-- **テスト**: `tests/test_optimizations_api.py`（9件）が成功系・400 系（未取得資産・期間外）・期間指定を検証。
+- **テスト**: `tests/test_optimizations_api.py`（14件）が成功系・400 系（未取得資産・期間外）・期間指定・422・**BL**（成功・市場ウェイト合計・τ 不正・ビュー対象外・市場ウェイト不整合）を検証。
 
 ### 7.3 バックテスト（固定ウェイト・実装済み）
 
@@ -285,7 +286,7 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
 - **スキーマ** `app/schemas/backtest.py`: `BacktestParams`（weights / rebalance_frequency / initial_capital / cost_rate / risk_free_rate / annualization_factor / lookback / **reoptimize** / **optimization_params**）・`BacktestRequest`（asset_ids/start/end 継承・`model_validator` で weights キー=asset_ids・`reoptimize=True` では `optimization_params` 必須）・`BacktestMetrics`（`float | None`）・`EquityPoint`・`Trade`・`AllocationPoint`・`YearlyPerformance`・`BacktestResult`（params echo・warnings・**rebalance_weights**）。
 - **API** `app/api/routes/backtests.py`: `POST /api/backtests` 同期。`load_price_matrix` で価格行列（未取得資産は 400 で明示）→ `reoptimize=True` なら `rebalance_allocation` で `weights_by_exec` を構築（最適化対象資産が未取得なら 400）→ `run_backtest` → `BacktestInputError` は 400（日本語）。スキーマ検証違反（ウェイト合計・キー不一致）は 422。
 - **GUI** `frontend/src/pages/BacktestScreen.tsx`: 対象資産（**最適化と同じ multi-select ドロップダウン**・取得済みのみ）・資産ごと固定ウェイト（number input・合計をリアルタイム表示）・リバランス頻度（日次/週次/月次/**年次**）・初期資金・コスト率・リスクフリー金利・期間・**再最適化元の最適化（比較一覧から選択）**・**リバランス時に再最適化チェック**を入力。結果表示は評価指標表（`null` は「—」）・累積資産折れ線・ドローダウン折れ線・年次成績表・配分推移折れ線・**リバランス時の採用ウェイト表（再最適化時）**・取引一覧（直近200件）・params echo・免責表示（Recharts・`.opt-form`/`.result-table`）。
-- **テスト**: `tests/test_backtest.py`（20件: 単一/2資産・次営業日約定・コスト/回転率・指標手計算・**バイアス検知**（未来データ変更で過去 equity/drawdown/trades が不変・再最適化時も）・中途終了が全期間の prefix・年次頻度・再最適化の採用ウェイト/失敗時継続・エラー/警告/null）・`tests/test_backtests_api.py`（11件: 200・JSONにNaN無し・400・422・年次・再最適化）・`BacktestScreen.test.tsx`（8件）。
+- **テスト**: `tests/test_backtest.py`（20件: 単一/2資産・次営業日約定・コスト/回転率・指標手計算・**バイアス検知**（未来データ変更で過去 equity/drawdown/trades が不変・再最適化時も）・中途終了が全期間の prefix・年次頻度・再最適化の採用ウェイト/失敗時継続・エラー/警告/null）・`tests/test_backtests_api.py`（13件: 200・JSONにNaN無し・400・422・年次・再最適化・BL 再最適化）・`BacktestScreen.test.tsx`（14件）。
 - **既知の制約**: 「実行結果の再現可能な保存」（スナップショット・コードバージョン永続化）は今回スコープ外。params echo と固定データにより手動再現は可能。runs/jobs への配線は未実施（メモリ内プレースホルダーのまま）。
 
 ## 8. API 設計（初期スケジュール）
@@ -343,3 +344,4 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
 - **2026-08-10** — 既定ティッカーを変更（ユーザー指示）。米国債券 `BND`→`AGG`（iShares Core U.S. Aggregate Bond、同一 Bloomberg US Agg Index、2003-09〜・5751行）、米国を除く債券 `BNDX`→`IAGG`（iShares Core International Aggregate Bond、同一 Bloomberg Global Agg ex-USD Index、USD建て・unhedged を継続）。Yahoo chart API で取得可能性・データ品質（欠損0・重複0）を確認後、`assets.default.json` を更新し `fetch` で再取得。全機能（assets / series / analysis / optimizations / backtests）を統合テストで確認（すべて 200、最適化・バックテストの指標は意味のある値）。**`ex_us_bond` の履歴は 2013-06（BNDX）→ 2015-11（IAGG）に短縮**（IAGG は2015年設立のため）。これは機能の欠落ではなく利用可能期間の変化。「4資産を揃えた分析・最適化」は2015年以降に限定される点に注意。
 - **2026-08-15** — バックテスト・最適化画面を拡張（6要件）。①バックテストの対象資産選択を最適化と同じ multi-select ドロップダウンに統一。②最適化画面の `efficient_return` の「目標リターンは最適化に使う…」説明文を削除（目標値入力は残す）。③最適化結果に個別資産の年率リターン/リスクを追加（`OptimizationMetrics` の `asset_returns`/`asset_volatilities`、最適化に使った `mu`・`sqrt(diag(sigma))` から算出）し、最適化画面に資産別統計表を表示。④保存済み最適化（`StoredResult.request` に `OptimizationRequest` を保持）をバックテストから選択して呼び出し可能に。⑤リバランス頻度に年次（`Y`、年度末シグナル・翌観測日約定）を追加。⑥「リバランス時に再最適化」チェックで `rebalance_allocation`（各シグナル日まで `prices.loc[:sig]` スライス）により再最適化。失敗時は**直前ウェイト継続＋日本語警告**（ユーザー決定）。`_simulate` を実行日→ウェイト（`weights_by_exec`）対応に拡張し、`BacktestParams` に `reoptimize`/`optimization_params`、`BacktestResult` に `rebalance_weights` を追加。再最適化時もルックアヘッド検査テストで検証。バックテストのエンジン・スキーマ・API・GUI・テスト（backend 145件・frontend 32件 green）を更新。
 - **2026-08-16** — Black-Litterman 期待リターン推定を実装（`expected_return_method="black_litterman"`）。ユーザー決定: ①市場ポートフォリオは**ウェイト（割合）で入力**（時価総額ではなく。デフォルト = 米国株式 22.88% / 米国債券 21.40% / 除く株式 23.73% / 除く債券 31.98%。時価総額 126.7/145.1 兆USD と株式/債券配分から合成を scheme の `DEFAULT_MARKET_WEIGHTS` に定数化）、②ビューは**絶対ビュー（年率期待リターン（r_f込み）の水準）のみ**、③フルスコープ（backend+frontend+test+docs）。`_compute_black_litterman`（`app/optimization/service.py`）を新設し、先行情報 Π=δ·Σ·w_mkt+rf（`bl_risk_aversion` 省略時は市場ポートフォリオのリターンから逆算）、絶対ビュー、ω=default/idzorek、τ を `BlackLittermanModel` に流して事後 μ/Σ を算出。ビュー 0 件は市場均衡に一致（PyPortfolioOpt は空ビュー非対応のため専用分岐で μ=Π・Σ を返す）。スキーマに `bl_*` フィールド＋validator（τ 範囲・リスク回避度正・確信度 0-1・市場ウェイト合計≈1・ビュー対象が選択資産内）を追加。フロントは最適化画面に BL 条件フォーム（市場ウェイト・ビュー・ω/τ/リスク回避度）とデフォルト値表示。**`omega="default"` では τ は結果に影響しない**（PyPortfolioOpt の `default_omega` と事後式の分子が打ち消し合う仕様）ことをテストで検証し明記。backend テスト +6件（test_optimization）、+5件（test_optimizations_api）、+1件（test_backtests_api へ BL 再最適化）、frontend テスト +5件（OptimizationScreen）を追加。
+- **2026-08-17** — BL の表記・UX を統一（実装ロジックは不変）。①BL 絶対ビューの説明を「年率期待超過リターン」から「**年率期待リターン（r_f込み）の水準**」へ統一（UI/README/docs、PyPortfolioOpt の `market_implied_prior_returns` が Π に `+r_f` する実装と整合）。具体例（r_f=1% で 5% 見込みなら「5」、超過 4% ではない）を UI ヒントと docs に明記。②BL ω=idzorek でビューのある資産に確信度が未入力のまま実行する失敗を UX 改善（クライアント検証を強化し、未入力資産名を明示した日本語エラーを表示。確信度 0 は弱いビューとして許容）。テスト +2件（OptimizationScreen）。
