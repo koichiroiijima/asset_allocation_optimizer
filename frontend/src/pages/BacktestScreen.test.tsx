@@ -265,6 +265,27 @@ describe('BacktestScreen', () => {
     expect(body.initial_capital).toBe(1000000);
   });
 
+  it('初期資金は小数でも送信でき、入力欄は step 刻み検証を持たない', async () => {
+    const fetchMock = stubFetch();
+    const user = userEvent.setup();
+
+    // 入力欄が step="any"（ブラウザの刻み検証で既定値・小数が弾かれない）
+    renderWithProvider(<BacktestScreen />);
+    await screen.findByRole('listbox', { name: /対象資産/ });
+    const capitalInput = screen.getByLabelText(/初期資金/) as HTMLInputElement;
+    expect(capitalInput.getAttribute('step')).toBe('any');
+
+    // 小数の初期資金を入力してから資産選択・送信すると、その値がそのまま送られる
+    await user.clear(capitalInput);
+    await user.type(capitalInput, '123.45');
+    await selectTwoAssetsAndSubmit(user);
+
+    await screen.findAllByText('30.00%');
+    const btCalls = fetchMock.mock.calls.filter(([input]) => String(input).includes('/backtests'));
+    expect(btCalls.length).toBe(1);
+    expect(JSON.parse(String(btCalls[0][1]?.body)).initial_capital).toBe(123.45);
+  });
+
   it('ウェイト合計が 1 でないとエラー（fetch しない）', async () => {
     const fetchMock = stubFetch();
     const user = userEvent.setup();
@@ -317,7 +338,7 @@ describe('BacktestScreen', () => {
     });
   });
 
-  it('保存済み最適化を選択し再最適化にチェックすると POST body に反映される', async () => {
+  it('保存済み最適化を選択すると POST body に再最適化として反映される', async () => {
     const fetchMock = stubFetch();
     const user = userEvent.setup();
     // 保存済みの最適化結果（request 付き）を Provider に投入する
@@ -349,9 +370,8 @@ describe('BacktestScreen', () => {
 
     await selectTwoAssetsAndSubmit(user);
 
-    // 保存済み最適化を選択して再最適化を有効化
+    // 保存済み最適化を選択するだけで再最適化が有効になる
     await user.selectOptions(screen.getByRole('combobox', { name: /再最適化元の最適化/ }), 'opt-1');
-    await user.click(screen.getByRole('checkbox', { name: /リバランス時に再最適化/ }));
 
     submitForm();
     await waitFor(() => {
@@ -364,32 +384,42 @@ describe('BacktestScreen', () => {
     });
   });
 
-  it('再最適化チェックかつ未選択だとエラー（fetch しない）', async () => {
+  it('再最適化元が未選択なら固定ウェイトで送信される', async () => {
     const fetchMock = stubFetch();
+    const saved: StoredResult = {
+      id: 'opt-1',
+      kind: 'optimization',
+      label: '最適化（max_sharpe / mean_historical_return）',
+      executedAt: '2026-08-09T10:00:00.000Z',
+      result: OPTIMIZATION_RESULT,
+      request: {
+        asset_ids: ['us_equity', 'us_bond'],
+        optimization_method: 'max_sharpe',
+        expected_return_method: 'mean_historical_return',
+        covariance_method: 'sample_cov',
+        risk_free_rate: 0,
+        annualization_factor: 252,
+        weight_bounds: [0, 1],
+      },
+    };
+    renderWithProvider(
+      <BacktestScreen />,
+      (providerChildren) => (
+        <CompareProvider>
+          <Seed initial={[saved]} />
+          {providerChildren}
+        </CompareProvider>
+      ),
+    );
     const user = userEvent.setup();
-    renderWithProvider(<BacktestScreen />);
-    await screen.findByRole('listbox', { name: /対象資産/ });
-    await user.selectOptions(screen.getByRole('listbox', { name: /対象資産/ }), [
-      'us_equity',
-      'us_bond',
-    ]);
-    const equityWeight = screen.getByLabelText(/米国株式.*ウェイト/);
-    await user.clear(equityWeight);
-    await user.type(equityWeight, '0.6');
-    const bondWeight = screen.getByLabelText(/米国債券.*ウェイト/);
-    await user.clear(bondWeight);
-    await user.type(bondWeight, '0.4');
+    await selectTwoAssetsAndSubmit(user);
 
-    await user.click(screen.getByRole('checkbox', { name: /リバランス時に再最適化/ }));
-    submitForm();
-
-    await screen.findByText(/再最適化には「再最適化元の最適化」の選択が必要です/);
-    await waitFor(() => {
-      const btCalls = fetchMock.mock.calls.filter(([input]) =>
-        String(input).includes('/backtests'),
-      );
-      expect(btCalls.length).toBe(0);
-    });
+    await screen.findAllByText('30.00%');
+    const btCalls = fetchMock.mock.calls.filter(([input]) => String(input).includes('/backtests'));
+    expect(btCalls.length).toBe(1);
+    const body = JSON.parse(String(btCalls[0][1]?.body));
+    expect(body.reoptimize).toBe(false);
+    expect(body.optimization_params).toBeUndefined();
   });
 
   it('取得済みの資産が無い場合は警告を表示しフォームを出さない', async () => {

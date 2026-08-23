@@ -43,10 +43,8 @@ interface FormState {
   riskFreeRate: string;
   start: string;
   end: string;
-  /** 再最適化元に選んだ最適化結果の id（比較一覧から）。空文字なら未選択。 */
+  /** 再最適化元に選んだ最適化結果の id（比較一覧から）。空文字なら未選択＝固定ウェイト。 */
   rebalanceOptimizationId: string;
-  /** リバランス時に再最適化するか。 */
-  reoptimize: boolean;
 }
 
 const INITIAL_CAPITAL = '1000000';
@@ -67,8 +65,9 @@ function buildRequest(f: FormState, optimization?: OptimizationRequest): Backtes
     risk_free_rate: Number(f.riskFreeRate),
     annualization_factor: 252,
     lookback: 252,
-    reoptimize: f.reoptimize,
-    optimization_params: f.reoptimize ? optimization : undefined,
+    // 再最適化元の選択有無で再最適化を切り替える（未選択＝固定ウェイト）。
+    reoptimize: optimization != null,
+    optimization_params: optimization,
     start: f.start || undefined,
     end: f.end || undefined,
   };
@@ -80,7 +79,7 @@ function weightSum(f: FormState): number {
 }
 
 /** クライアント側の軽い検証（サーバー 422 に依存しない）。 */
-function validateForm(f: FormState, optimization?: OptimizationRequest): string | null {
+function validateForm(f: FormState): string | null {
   if (f.selectedAssetIds.length < 1) {
     return '対象資産を1件以上選択してください';
   }
@@ -99,9 +98,6 @@ function validateForm(f: FormState, optimization?: OptimizationRequest): string 
   const capital = Number(f.initialCapital);
   if (Number.isNaN(capital) || capital <= 0) {
     return '初期資金は正の数値で入力してください';
-  }
-  if (f.reoptimize && !optimization) {
-    return '再最適化には「再最適化元の最適化」の選択が必要です';
   }
   return null;
 }
@@ -151,7 +147,6 @@ export function BacktestScreen() {
     start: '',
     end: '',
     rebalanceOptimizationId: '',
-    reoptimize: false,
   });
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<BacktestResponse | null>(null);
@@ -189,7 +184,7 @@ export function BacktestScreen() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const validationError = validateForm(form, selectedOptimization?.request);
+    const validationError = validateForm(form);
     if (validationError) {
       setSubmitError(null);
       setFormError(validationError);
@@ -308,7 +303,7 @@ export function BacktestScreen() {
                   update('rebalanceOptimizationId', e.target.value)
                 }
               >
-                <option value="">未選択</option>
+                <option value="">未選択（固定ウェイト）</option>
                 {optimizationOptions.map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.label}
@@ -316,20 +311,9 @@ export function BacktestScreen() {
                 ))}
               </select>
               <span className="hint-text">
-                最適化画面で「比較に追加」した結果を選ぶと、そのアルゴリズムで再最適化できます。
-              </span>
-            </label>
-
-            <label>
-              <span>リバランス時に再最適化</span>
-              <input
-                type="checkbox"
-                checked={form.reoptimize}
-                onChange={(e) => update('reoptimize', e.target.checked)}
-              />
-              <span className="hint-text">
-                各リバランス時点まで（開始日またはデータ冒頭から）で最適化し、編入ウェイトを決めます。
-                再最適化に失敗した時点は直前のウェイトを継続します。
+                最適化画面で「比較に追加」した結果を選ぶと、各リバランス時点まで
+                （開始日またはデータ冒頭から）でそのアルゴリズムにより再最適化します。
+                未選択なら固定ウェイトで実行します。再最適化に失敗した時点は直前のウェイトを継続します。
               </span>
             </label>
 
@@ -337,20 +321,18 @@ export function BacktestScreen() {
               <span>初期資金</span>
               <input
                 type="number"
-                step="10000"
-                min={1}
+                step="any"
                 value={form.initialCapital}
                 onChange={(e) => update('initialCapital', e.target.value)}
               />
+              <span className="hint-text">正の数値（小数可）</span>
             </label>
 
             <label>
               <span>コスト率（売買両建て）</span>
               <input
                 type="number"
-                step="0.0001"
-                min={0}
-                max={1}
+                step="any"
                 value={form.costRate}
                 onChange={(e) => update('costRate', e.target.value)}
               />
@@ -361,7 +343,7 @@ export function BacktestScreen() {
               <span>リスクフリー金利</span>
               <input
                 type="number"
-                step="0.0001"
+                step="any"
                 value={form.riskFreeRate}
                 onChange={(e) => update('riskFreeRate', e.target.value)}
               />
