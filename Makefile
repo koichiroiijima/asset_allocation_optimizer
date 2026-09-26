@@ -5,6 +5,7 @@
 
 .PHONY: setup test test-backend test-frontend lint lint-backend lint-frontend \
         typecheck typecheck-backend typecheck-frontend dev dev-backend dev-frontend \
+        start stop stop-backend stop-frontend \
         format format-backend format-frontend reset-data
 
 # ---- セットアップ ----
@@ -48,15 +49,31 @@ format-backend:
 format-frontend:
 	cd frontend && npm run format
 
-# ---- 開発サーバー（並列起動） ----
+# ---- 開発サーバー（フォアグラウンド・並列起動。Ctrl+C で停止） ----
 # backend: uvicorn (:8000)   frontend: Vite (:5173, /api を :8000 へプロキシ)
-dev: dev-backend dev-frontend
+dev:
+	@$(MAKE) -j2 dev-backend dev-frontend
 
 dev-backend:
 	cd backend && uv run uvicorn app.main:app --reload --port $(or $(PORT),8000)
 
 dev-frontend:
 	cd frontend && npm run dev
+
+# ---- 開発サーバー（バックグラウンド起動・停止） ----
+# start: backend + frontend をバックグラウンドで起動（ログ: logs/, PID: .run/）
+# stop : start または make dev で起動したサーバーを停止
+start:
+	@bash scripts/start.sh
+
+stop:
+	@bash scripts/stop.sh
+
+stop-backend:
+	@bash scripts/stop.sh backend
+
+stop-frontend:
+	@bash scripts/stop.sh frontend
 
 # ---- データリセット（取得済みデータ・DBを削除。fixtures は対象外） ----
 reset-data:

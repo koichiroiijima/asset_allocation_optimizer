@@ -52,9 +52,11 @@ cd frontend && npm install # node_modules をインストール
 | `make lint` | backend (ruff) + frontend (eslint) |
 | `make typecheck` | backend (mypy) + frontend (tsc) |
 | `make format` | backend (ruff format) + frontend (prettier) |
-| `make dev` | 開発サーバーを並列起動（backend :8000 + frontend :5173） |
+| `make dev` | 開発サーバーを並列起動（backend :8000 + frontend :5173。Ctrl+C で停止） |
 | `make dev-backend` | FastAPI（Uvicorn + reload） |
 | `make dev-frontend` | Vite dev server |
+| `make start` | 開発サーバーをバックグラウンド起動（ログ: `logs/`、PID: `.run/`） |
+| `make stop` | `make start` / `make dev` で起動したサーバーを停止（`stop-backend` / `stop-frontend` で個別停止） |
 | `make reset-data` | 取得データ・成果物・DB を削除（fixtures は対象外） |
 
 個別で実行する場合:
@@ -79,13 +81,21 @@ npm run build              # 本番ビルド
 ### 開発サーバー
 
 ```bash
+# 方法A: バックグラウンド起動（stop で明示的に停止。ログは logs/ に出力）
+make start
+make stop
+
+# 方法B: フォアグラウンドで並列起動（Ctrl+C で停止）
 make dev
-# または2つのターミナルで
+
+# 方法C: 2つのターミナルで個別起動
 make dev-backend   # http://localhost:8000  (OpenAPI: /docs)
 make dev-frontend  # http://localhost:5173 (/api を :8000 へプロキシ)
+```
+
+`make start` は backend と frontend をバックグラウンドで起動し、PID を `.run/`、ログを `logs/` に保存します。停止は `make stop`（`scripts/stop.sh`）で行い、PID ファイルが無い手動起動のプロセスも `pkill` のパターンで停止できます。**ポート番号による停止は他プロジェクトを巻き込むため行いません。** frontend は指定ポート（既定 5173）が使用中だと Vite が自動で別ポートへ移り、`make start` は実際に使用された URL を表示します。
 
 frontend の API ベース URL は環境変数 `VITE_API_BASE` で変更できます（既定は `/api`、後述の Vite プロキシ経由）。backend 側の設定は `ASSET_ALLOC__*` プレフィックス（`.env.example` 参照）ですが、**frontend 側は Vite の `VITE_` プレフィックス**なので注意してください。
-```
 
 プルークチェック: `curl http://localhost:8000/api/health` が `{"status":"ok",...}` を返せば接続成功です。
 
