@@ -125,3 +125,41 @@ def test_series_filters_by_date_range(client: TestClient, tmp_settings: Settings
     dates = [p["date"] for p in resp.json()["points"]]
     # 01-04 は adjusted_close が NaN のため除外され、01-03 のみ
     assert dates == ["2024-01-03"]
+
+
+def test_series_jp_asset_reports_jpy(client: TestClient, tmp_settings: Settings) -> None:
+    """日本モード資産の系列はデータ通貨 JPY を返す。"""
+    repo = ParquetPriceRepository(tmp_settings.processed_dir)
+    repo.save_series(
+        "jp_equity",
+        pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2024-01-02", "2024-01-03"]),
+                "asset_id": ["jp_equity", "jp_equity"],
+                "raw_close": [292.45, 293.1],
+                "adjusted_close": [280.15, 280.77],
+                "distribution": [0.0, 0.0],
+                "currency": ["JPY", "JPY"],
+                "source": ["yahoo", "yahoo"],
+                "source_symbol": ["1306.T", "1306.T"],
+                "price_type": ["adjusted_close", "adjusted_close"],
+            }
+        ),
+    )
+    resp = client.get("/api/data/series", params={"asset_id": "jp_equity"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["currency"] == "JPY"
+    assert [p["value"] for p in body["points"]] == [280.15, 280.77]
+
+
+def test_series_missing_jp_asset_falls_back_to_jpy_currency(
+    client: TestClient, tmp_settings: Settings
+) -> None:
+    """未取得の日本モード資産は、基準通貨 JPY で空系列＋警告を返す。"""
+    resp = client.get("/api/data/series", params={"asset_id": "jp_bond"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["currency"] == "JPY"
+    assert body["points"] == []
+    assert any("未取得" in w for w in body["warnings"])

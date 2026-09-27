@@ -52,3 +52,28 @@ def test_validate_rejects_invalid_fx_policy() -> None:
     settings = Settings(fx_policy="hedged")
     # "hedged" は有効。正しく無い値なら検証時に弾くことを確認。
     validate_settings(settings)
+
+
+def test_asset_sets_default(tmp_settings: Settings) -> None:
+    """資産セットの既定は us / jp の2モードで、既定モードは us。"""
+    assert tmp_settings.default_asset_set == "us"
+    assert set(tmp_settings.asset_mapping_files) == {"us", "jp"}
+    assert tmp_settings.asset_mapping_files["us"].name == "assets.default.json"
+    assert tmp_settings.asset_mapping_files["jp"].name == "assets.jp.json"
+
+
+def test_validate_rejects_default_asset_set_not_in_mappings() -> None:
+    """default_asset_set が asset_mapping_files に無い場合は検証で弾かれる。"""
+    settings = Settings(
+        default_asset_set="eu",
+        asset_mapping_files={"us": Path("assets.default.json")},
+    )
+    with pytest.raises(ValueError, match="default_asset_set"):
+        validate_settings(settings)
+
+
+def test_validate_rejects_empty_asset_mappings() -> None:
+    """asset_mapping_files が空の場合は検証で弾かれる。"""
+    settings = Settings(asset_mapping_files={})
+    with pytest.raises(ValueError):
+        validate_settings(settings)

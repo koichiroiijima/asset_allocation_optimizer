@@ -16,6 +16,7 @@ from app.data.providers.yahoo import (
     DEFAULT_UA,
     ProviderDataError,
     YahooPriceProvider,
+    _calendar_for,
 )
 
 SYMBOLS = {"us_equity": "VTI"}
@@ -183,3 +184,21 @@ def test_jp_symbol_maps_currency_timezone_calendar_and_adjusted_close() -> None:
     assert first.adjusted_close < first.raw_close
     # 配当イベントが distribution に入る
     assert records[2].distribution == 5.79
+
+
+@pytest.mark.parametrize(
+    ("currency", "timezone_name", "symbol", "expected"),
+    [
+        ("JPY", "Asia/Tokyo", "1306.T", "jp"),
+        ("JPY", None, "1306.T", "jp"),  # 通貨 JPY のみ
+        ("USD", "Asia/Tokyo", "9999", "jp"),  # タイムゾーンが Tokyo
+        ("USD", "America/New_York", "1306.T", "jp"),  # シンボル末尾 .T
+        ("USD", "America/New_York", "VTI", "us"),
+        ("USD", None, "AGG", "us"),  # 不明は us へフォールバック
+    ],
+)
+def test_calendar_for(
+    currency: str, timezone_name: str | None, symbol: str, expected: str
+) -> None:
+    """カレンダー判定: 東京の手掛かりがあれば jp、なければ us。"""
+    assert _calendar_for(currency, timezone_name, symbol) == expected

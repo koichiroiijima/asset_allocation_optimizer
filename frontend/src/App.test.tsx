@@ -68,6 +68,9 @@ describe('App', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: '日本' }));
+    // トグルが選択状態になる（aria-pressed）
+    expect(screen.getByRole('button', { name: '日本' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '米国' })).toHaveAttribute('aria-pressed', 'false');
     await waitFor(() => {
       const urls = fetchMock.mock.calls.map((c) => String(c[0]));
       expect(urls.some((u) => u.includes('/assets?set=jp'))).toBe(true);

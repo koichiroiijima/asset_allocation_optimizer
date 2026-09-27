@@ -215,3 +215,54 @@ def test_analysis_filters_by_date_range(client: TestClient, tmp_settings: Settin
     body = resp.json()
     equity = next(a for a in body["prices"] if a["asset_id"] == "us_equity")
     assert [p["date"] for p in equity["points"]] == ["2024-01-03", "2024-01-04"]
+
+def test_analysis_jp_assets_report_jpy_currency(
+    client: TestClient, tmp_settings: Settings
+) -> None:
+    """日本モードの資産は基準通貨 JPY を返す。"""
+    repo = ParquetPriceRepository(tmp_settings.processed_dir)
+    dates = pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04", "2024-01-05"])
+    for asset_id, symbol, base in (
+        ("jp_equity", "1306.T", 280.0),
+        ("jp_bond", "2510.T", 861.0),
+    ):
+        repo.save_series(
+            asset_id,
+            pd.DataFrame(
+                {
+                    "date": dates,
+                    "asset_id": [asset_id] * len(dates),
+                    "raw_close": [base, base + 1, base + 2, base + 3],
+                    "adjusted_close": [base, base + 1, base + 2, base + 3],
+                    "distribution": [0.0] * len(dates),
+                    "currency": ["JPY"] * len(dates),
+                    "source": ["yahoo"] * len(dates),
+                    "source_symbol": [symbol] * len(dates),
+                    "price_type": ["adjusted_close"] * len(dates),
+                }
+            ),
+        )
+    resp = client.get(
+        "/api/data/analysis",
+        params={"asset_ids": ["jp_equity", "jp_bond"]},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["currency"] == "JPY"
+    assert body["assets_used"] == ["jp_equity", "jp_bond"]
+    assert body["correlation"]["assets"] == ["jp_equity", "jp_bond"]
+
+
+def test_analysis_missing_jp_assets_still_reports_jpy(
+    client: TestClient, tmp_settings: Settings
+) -> None:
+    """日本モード資産が未取得でも、基準通貨 JPY を返す。"""
+    resp = client.get(
+        "/api/data/analysis",
+        params={"asset_ids": ["jp_equity", "jp_bond"]},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["currency"] == "JPY"
+    assert body["assets_used"] == []
+    assert body["warnings"]

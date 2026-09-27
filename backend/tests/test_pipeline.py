@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 
 import pandas as pd
+import pytest
 from app.config.settings import Settings
 from app.data.pipeline import PricePipeline
 from app.data.repository import SqliteIndexRepository
@@ -153,3 +154,9 @@ def test_processed_keeps_adjusted_close_for_total_return(tmp_settings: Settings)
     assert set(processed["adjusted_close"]) == {103.0, 104.0}
     assert set(processed["raw_close"]) == {102.0, 103.0}
     assert (processed["adjusted_close"] != processed["raw_close"]).all()
+
+
+def test_pipeline_unknown_asset_set_raises(tmp_settings: Settings) -> None:
+    """未知の資産セットは ValueError（握りつぶさない）。"""
+    with pytest.raises(ValueError, match="未知の資産セット"):
+        PricePipeline(tmp_settings, provider=FakeProvider(), asset_set="eu")
