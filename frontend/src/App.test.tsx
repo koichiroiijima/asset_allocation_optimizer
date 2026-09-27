@@ -44,4 +44,33 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: '最適化（BL）' }));
     expect(screen.getByRole('heading', { name: '最適化（BL）' })).toBeInTheDocument();
   });
+
+  it('モード切替（日本）で資産一覧を set=jp で再取得する', async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/health')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({ status: 'ok', app: 'a', version: '1', app_env: 'test' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          ),
+        );
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ assets: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: '日本' }));
+    await waitFor(() => {
+      const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+      expect(urls.some((u) => u.includes('/assets?set=jp'))).toBe(true);
+    });
+  });
 });

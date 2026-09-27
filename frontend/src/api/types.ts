@@ -9,7 +9,18 @@ export interface HealthResponse {
   app_env: string;
 }
 
-export type LogicalAsset = 'us_equity' | 'us_bond' | 'ex_us_equity' | 'ex_us_bond';
+/** 資産セット（モード）。us=米国モード（USD基準）/ jp=日本モード（JPY基準）。 */
+export type AssetSet = 'us' | 'jp';
+
+export type LogicalAsset =
+  | 'us_equity'
+  | 'us_bond'
+  | 'ex_us_equity'
+  | 'ex_us_bond'
+  | 'jp_equity'
+  | 'jp_bond'
+  | 'ex_jp_equity'
+  | 'ex_jp_bond';
 
 /** processed データの状態（assets エンドポイントが合成）。 */
 export interface AssetDataStatus {
@@ -28,6 +39,7 @@ export interface AssetDataStatus {
 
 export interface Asset {
   logical_asset: LogicalAsset;
+  asset_set: AssetSet;
   display_name: string;
   default_ticker: string;
   underlying: string | null;
@@ -141,15 +153,27 @@ export type CovarianceMethod = 'sample_cov' | 'semicovariance' | 'ledoit_wolf';
 export type BlOmegaMethod = 'default' | 'idzorek';
 
 /**
- * 既定の市場ポートフォリオウェイト（BL）。
- * 米国株式/債券と除く株式/債券の時価総額(126.7/145.1兆USD)と株式/債券配分から合成した
- * 4資産比率。order は DEFAULT_ASSET_ORDER に一致させる。
+ * 既定の市場ポートフォリオウェイト（BL）を資産セット別に持つ。
+ * us: 米国株式/債券と除く株式/債券の時価総額から合成した4資産比率。
+ * jp: 日本モードの**仮値**（研究用。日本株/日本債券/外国株/外国債）。後で調整可能。
  */
 export const BL_DEFAULT_MARKET_WEIGHTS: Record<string, number> = {
   us_equity: 0.2288,
   us_bond: 0.214,
   ex_us_equity: 0.2373,
   ex_us_bond: 0.3198,
+};
+
+export const BL_DEFAULT_MARKET_WEIGHTS_JP: Record<string, number> = {
+  jp_equity: 0.25,
+  jp_bond: 0.35,
+  ex_jp_equity: 0.25,
+  ex_jp_bond: 0.15,
+};
+
+export const BL_DEFAULT_MARKET_WEIGHTS_BY_SET: Record<AssetSet, Record<string, number>> = {
+  us: BL_DEFAULT_MARKET_WEIGHTS,
+  jp: BL_DEFAULT_MARKET_WEIGHTS_JP,
 };
 
 export interface OptimizationRequest {
@@ -193,6 +217,8 @@ export interface OptimizationResponse {
   /** 表示用に丸めたウェイト。 */
   clean_weights: Record<string, number>;
   metrics: OptimizationMetrics;
+  /** 基準通貨（us=USD / jp=JPY）。 */
+  base_currency?: string;
   params: {
     optimization_method: OptimizationMethod;
     expected_return_method: ExpectedReturnMethod;

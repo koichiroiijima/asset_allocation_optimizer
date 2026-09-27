@@ -1,6 +1,7 @@
 [
   {
     "logical_asset": "us_equity",
+    "asset_set": "us",
     "display_name": "米国株式",
     "default_ticker": "VTI",
     "underlying": "CRSP US Total Market Index",
@@ -15,6 +16,7 @@
   },
   {
     "logical_asset": "us_bond",
+    "asset_set": "us",
     "display_name": "米国債券",
     "default_ticker": "AGG",
     "underlying": "Bloomberg U.S. Aggregate Bond Index",
@@ -29,6 +31,7 @@
   },
   {
     "logical_asset": "ex_us_equity",
+    "asset_set": "us",
     "display_name": "米国を除く株式",
     "default_ticker": "VXUS",
     "underlying": "FTSE Global All Cap ex US Index",
@@ -43,6 +46,7 @@
   },
   {
     "logical_asset": "ex_us_bond",
+    "asset_set": "us",
     "display_name": "米国を除く債券",
     "default_ticker": "IAGG",
     "underlying": "Bloomberg Global Aggregate ex-USD Index",

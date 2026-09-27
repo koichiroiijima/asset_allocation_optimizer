@@ -37,9 +37,17 @@ class PricePipeline:
         *,
         provider: Any | None = None,
         assets: list[AssetDefinition] | None = None,
+        asset_set: str | None = None,
     ) -> None:
         self._settings = settings
-        self._assets = assets or load_asset_mapping(settings.asset_mapping_file)
+        if assets is not None:
+            self._assets = assets
+        else:
+            name = asset_set or settings.default_asset_set
+            mapping_path = settings.asset_mapping_files.get(name)
+            if mapping_path is None:
+                raise ValueError(f"未知の資産セットです: {name!r}")
+            self._assets = load_asset_mapping(mapping_path)
         self._symbols: dict[str, str] = {a.logical_asset: a.default_ticker for a in self._assets}
         self._provider = provider or YahooPriceProvider(self._symbols)
         self._raw = RawParquetWriter(settings.raw_dir)

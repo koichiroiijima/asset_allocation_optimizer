@@ -1,13 +1,14 @@
 """資産定義の API スキーマ。"""
 
 from datetime import date, datetime
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.config.assets import AssetDefinition
+from app.domain.assets import AssetId
 
-LogicalAsset = Literal["us_equity", "us_bond", "ex_us_equity", "ex_us_bond"]
+# 後方互換の別名（論理資産ID。両モードの8資産）。
+LogicalAsset = AssetId
 
 
 class Asset(AssetDefinition):

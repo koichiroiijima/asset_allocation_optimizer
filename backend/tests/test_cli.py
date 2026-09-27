@@ -19,6 +19,7 @@ class FakePipeline:
     def __init__(self, settings: Settings) -> None:
         self.calls: list[dict[str, object]] = []
         self.closed = False
+        self.pipeline_kwargs: dict[str, object] = {}
 
     def run(
         self, asset_ids: list[str] | None = None, start: object = None, end: object = None
@@ -42,8 +43,13 @@ class FakePipeline:
 
 def _install(monkeypatch: pytest.MonkeyPatch, tmp_settings: Settings) -> FakePipeline:
     fake = FakePipeline(tmp_settings)
+
+    def _factory(settings: Settings, **kwargs: object) -> FakePipeline:
+        fake.pipeline_kwargs.update(kwargs)
+        return fake
+
     monkeypatch.setattr("app.cli.get_settings", lambda: tmp_settings)
-    monkeypatch.setattr("app.cli.PricePipeline", lambda settings: fake)
+    monkeypatch.setattr("app.cli.PricePipeline", _factory)
     return fake
 
 
@@ -112,4 +118,44 @@ def test_export_csv_unknown_asset_returns_2(
     """export-csv の未知 asset_id も終了コード 2。"""
     _install(monkeypatch, tmp_settings)
     code = main(["export-csv", "--asset", "nope"])
+    assert code == 2
+
+
+def test_fetch_jp_set_selects_jp_assets(
+    monkeypatch: pytest.MonkeyPatch, tmp_settings: Settings, capsys: pytest.CaptureFixture
+) -> None:
+    """--set jp --asset jp_equity で日本モードの資産を取得する。"""
+    fake = _install(monkeypatch, tmp_settings)
+    code = main(["fetch", "--set", "jp", "--asset", "jp_equity"])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert fake.pipeline_kwargs["asset_set"] == "jp"
+    assert "日本株式" in out
+
+
+def test_fetch_infers_set_from_asset(
+    monkeypatch: pytest.MonkeyPatch, tmp_settings: Settings
+) -> None:
+    """--set 未指定でも jp 資産IDから日本モードを推定する。"""
+    fake = _install(monkeypatch, tmp_settings)
+    code = main(["fetch", "--asset", "jp_bond"])
+    assert code == 0
+    assert fake.pipeline_kwargs["asset_set"] == "jp"
+
+
+def test_fetch_mixed_sets_without_set_returns_2(
+    monkeypatch: pytest.MonkeyPatch, tmp_settings: Settings
+) -> None:
+    """モードをまたぐ資産IDは --set 無しではエラー。"""
+    _install(monkeypatch, tmp_settings)
+    code = main(["fetch", "--asset", "us_equity", "--asset", "jp_equity"])
+    assert code == 2
+
+
+def test_fetch_asset_not_in_set_returns_2(
+    monkeypatch: pytest.MonkeyPatch, tmp_settings: Settings
+) -> None:
+    """--set と異なるモードの資産IDはエラー。"""
+    _install(monkeypatch, tmp_settings)
+    code = main(["fetch", "--set", "jp", "--asset", "us_equity"])
     assert code == 2

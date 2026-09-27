@@ -21,6 +21,22 @@
 - [x] フロントエンド6画面の骨格 + Header / HealthCheck
 - [x] テスト基盤（backend: ruff / mypy strict / pytest、frontend: ESLint / Prettier / tsc / vitest）
 
+## 資産セット（米国モード / 日本モード・円ベース）
+
+- [x] 資産セット（モード）基盤 — `us`（USD基準）/ `jp`（JPY基準）。`AssetId` を8値に拡張、`AssetDefinition.asset_set`、`ASSET_SET_BASE_CURRENCY` を追加
+- [x] 設定ファイル分割 — `assets.default.json`（us）/ `assets.jp.json`（jp・全銘柄円建て）。`Settings.asset_mapping_files`（dict）+ `default_asset_set`
+- [x] データ取得切替 — CLI `fetch --set us|jp`（`--asset` のみでモード自動判定・混在/不整合はエラー）、`export-csv` は processed 横断
+- [x] `GET /api/assets?set={us|jp}`（既定 us・未知名400・`data_status` 合成）
+- [x] 円ベース通貨の配線 — 基準通貨を選択資産から導出し、series/analysis/backtests/optimizations（`base_currency`）へ反映
+- [x] 分配金補正付き `adjusted_close` の使用保証（最適化・バックテスト・分析）。`distribution` は別途保存、`raw_close` は表示専用
+- [x] Yahoo provider の `calendar` 判定（jp/us）
+- [x] BL の JP 仮既定市場ウェイト（`DEFAULT_MARKET_WEIGHTS_JP`・仮値警告付き）とフロントの set別既定
+- [x] 最小のモード切替 GUI（`AssetSetContext` + Header トグル、`useAssets` の `?set=` 追従、切替時リセット、比較のウェイト列動的化）
+- [ ] 実データ取得（`fetch --set jp`）と E2E 確認（ネットワーク必要）
+- [ ] 汎用 FX 換算レイヤ（外貨建て→基準通貨。今回は対象外）
+- [ ] JPモードの資産数を増やす / ユーザー定義資産セット
+
+
 ## データ取得（Yahoo Finance）
 
 - [x] Yahoo Finance chart API（query2・ブラウザUA付与）採用（query1=429・stooq 辞退の比較記録）

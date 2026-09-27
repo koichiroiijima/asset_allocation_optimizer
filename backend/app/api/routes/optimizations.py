@@ -23,6 +23,7 @@ from app.api.deps import get_settings
 from app.api.route_helpers import load_price_matrix
 from app.config import Settings
 from app.data.repository import ParquetPriceRepository
+from app.domain.assets import base_currency_for_assets
 from app.optimization.service import OptimizationInputError, static_allocation
 from app.schemas.optimization import OptimizationRequest, OptimizationResult
 
@@ -65,6 +66,8 @@ def create_optimization(
     # ルート層で検出した警告（欠落行情報など）をサービス層の警告に連結して UI に返す。
     if load_warnings:
         result.warnings = load_warnings + list(result.warnings)
+    # 選択資産から基準通貨（us=USD / jp=JPY）を設定する。
+    result.base_currency = base_currency_for_assets(request.asset_ids)
     return result
 
 

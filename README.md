@@ -106,7 +106,7 @@ CLAUDE.md の API 設計に基づく初期エンドポイント。**最適化は
 | メソッド | パス | 内容 | 状態 |
 | --- | --- | --- | --- |
 | `GET` | `/api/health` | 稼働状態 | 実装済み |
-| `GET` | `/api/assets` | 資産定義・候補商品・**データ状態** | 実装済み（processed から状態を合成） |
+| `GET` | `/api/assets?set={us\|jp}` | 資産定義・候補商品・**データ状態**（既定 `us`。未知名は 400） | 実装済み（processed から状態を合成） |
 | `GET` | `/api/data/series` | 正規化済み系列（価格・リターン・累積、D/W/M 再サンプリング、NaN 除外） | 実装済み（processed に配線） |
 | `GET` | `/api/data/analysis` | 分析画面用データ（複数資産の価格・累積リターン・ローリングボラ・相関・**リターン/リスク統計 `stats`**） | 実装済み（未取得資産は除外して警告） |
 | `POST` | `/api/optimizations` | 最適化（`static_allocation`）の同期実行 | 実装済み（`start`/`end` でルックアヘッド回避） |
@@ -120,9 +120,16 @@ CLAUDE.md の API 設計に基づく初期エンドポイント。**最適化は
 
 OpenAPI スキーマは起動後に `http://localhost:8000/docs` で確認できます。
 
-## 4資産のマッピング
+## 4資産のマッピング（米国モード / 日本モード）
 
-論理資産は設定ファイル（`backend/app/config/assets.default.json`）で定義します。ティッカーは変更可能です（`assets.default.json` を編集）。
+論理資産は設定ファイルで定義します。**2つの資産セット（モード）**を持ち、GUI のヘッダーまたは `set` パラメータで切り替えます。**既定は米国モード（`us`）**です。
+
+- 米国モード（`us`・基準通貨 **USD**）: `backend/app/config/assets.default.json`
+- 日本モード（`jp`・基準通貨 **JPY**）: `backend/app/config/assets.jp.json`
+
+ティッカーは変更可能です（各 JSON を編集）。
+
+### 米国モード（`us`）
 
 | 論理資産 | 表示名 | 既定ティッカー | 対象指数 | 通貨 |
 | --- | --- | --- | --- | --- |
@@ -130,6 +137,19 @@ OpenAPI スキーマは起動後に `http://localhost:8000/docs` で確認でき
 | `us_bond` | 米国債券 | `AGG` | Bloomberg U.S. Aggregate Bond Index | USD |
 | `ex_us_equity` | 米国を除く株式 | `VXUS` | FTSE Global All Cap ex US Index | USD |
 | `ex_us_bond` | 米国を除く債券 | `IAGG` | Bloomberg Global Aggregate ex-USD Index | USD |
+
+### 日本モード（`jp`）
+
+| 論理資産 | 表示名 | 既定ティッカー | 対象指数 | 通貨 |
+| --- | --- | --- | --- | --- |
+| `jp_equity` | 日本株式 | `1306.T` | TOPIX | JPY |
+| `jp_bond` | 日本債券 | `2510.T` | NOMURA-BPI 総合 | JPY |
+| `ex_jp_equity` | 日本を除く外国株式 | `1550.T` | MSCI Kokusai（為替ヘッジなし） | JPY |
+| `ex_jp_bond` | 日本を除く外国債券 | `2511.T` | FTSE 世界国債インデックス（除く日本・ヘッジなし） | JPY |
+
+> 日本モードは**全銘柄が円建て（東京証券取引所）**のため、価格行列がそのまま**円ベース**になります（FX 換算レイヤは使いません）。外国資産の為替変動は ETF 価格に織り込まれます。日本モードの**共通履歴開始は概ね 2017-12**（日本債券・外国債券 ETF の設定が2017年）です。
+
+> **分配金補正（重要）**: 最適化・バックテスト・分析のリターン計算には、Yahoo `indicators.adjclose` の**分配金補正付き Adjusted Close（`adjusted_close`）**を使用します。`raw_close` はデータ画面の表示専用で、計算には使いません。分配金額は `distribution` 列に別途保存します。
 
 > 既定ティッカーは **Yahoo Finance chart API で取得確認済み**です（データソースの選定理由・Adjusted Close / 分配金の扱いは [`docs/design.md`](docs/design.md) の §6.4 を参照）。ティッカーは設定で変更可能で、`sync` を前提にコードへ固定していません。
 
@@ -140,12 +160,16 @@ OpenAPI スキーマは起動後に `http://localhost:8000/docs` で確認でき
 ```bash
 cd backend
 
-# 全4資産（VTI / AGG / VXUS / IAGG）の全履歴を取得して保存
+# 米国モード（既定）の全4資産（VTI / AGG / VXUS / IAGG）を取得して保存
 uv run python -m app.cli fetch
 
-# 特定資産・期間を指定
+# 日本モード（jp）の全4資産（1306.T / 2510.T / 1550.T / 2511.T）を取得
+uv run python -m app.cli fetch --set jp
+
+# 特定資産・期間を指定（--asset のみなら所属モードを自動判定）
 uv run python -m app.cli fetch --asset us_equity --asset us_bond \
     --start 2024-01-01 --end 2024-06-30
+uv run python -m app.cli fetch --asset jp_equity --asset jp_bond
 
 # 正規化済み Parquet を CSV へエクスポート（既定: processed ディレクトリ）
 uv run python -m app.cli export-csv --out ../data/processed
@@ -154,6 +178,8 @@ uv run python -m app.cli export-csv --out ../data/processed
 uv run python -m app.cli --help
 uv run python -m app.cli --version
 ```
+
+`fetch` の `--set` は `us` / `jp`（既定は `settings.default_asset_set`＝通常 `us`）。`--asset` にモードをまたぐ ID を混在させる場合は `--set` を明示してください（未指定で混在するとエラーになります）。
 
 出力:
 - `data/raw/{asset}.parquet` ＋ `data/raw/{asset}.snapshot.json` — 取得直後の原本（スナップショットハッシュ付き）
@@ -256,12 +282,13 @@ curl -X POST http://localhost:8000/api/backtests \
 
 ## 通貨・FX 方針（初期版）
 
-- `instrument_trading_currency` = **USD**（各 ETF の取引通貨。価格・リターンの実データ通貨）
+- **基準通貨は資産セット（モード）ごと**に決まります: `us` = **USD** / `jp` = **JPY**（`app/domain/assets.py` の `ASSET_SET_BASE_CURRENCY`）。
+- `instrument_trading_currency` = **USD**（後方互換の既定設定値。実際の価格・リターン系列の通貨はデータの `currency` 列を使用）
 - `underlying_currency_exposure` = **USD**（裏付け資産の通貨エクスポージャー）
 - `portfolio_base_currency` = **JPY**（ポートフォリオ基準通貨。初期版の設定値）
 - `fx_policy` = **unhedged**（為替ヘッジなし）
 
-**`/api/data/series` と `/api/data/analysis` の `currency` は実データの通貨（USD）** を返します（データレコードの `currency` 列）。`portfolio_base_currency`（JPY）はポートフォリオ評価の基準通貨で、価格・リターン系列の通貨とは別に扱います。USD建てETFを日本円基準で評価する場合の USD/JPY エクスポージャーは、アプリ内で明示します（現状は評価換算の実装なし）。
+**`/api/data/series` と `/api/data/analysis` の `currency` は実データの通貨**（米国モード=USD / 日本モード=JPY）を返します（データレコードの `currency` 列、未取得時は資産セットの基準通貨）。日本モードの価格系列は**すべて円建て ETF**のため、**FX 換算なしで円ベース**になります。外貨建て ETF を円換算して評価する汎用 FX レイヤは**未実装**です（必要になった段階で追加）。`portfolio_base_currency`（JPY）はポートフォリオ評価の基準通貨で、価格・リターン系列の通貨とは別に扱います。
 
 ## 現在の実装状態
 
@@ -271,6 +298,7 @@ curl -X POST http://localhost:8000/api/backtests \
 - **完了**: Yahoo Finance からのデータ取得 CLI（`fetch` → raw → 正規化 → processed → `export-csv`、取得履歴の SQLite 記録、raw/processed のスナップショットハッシュ連携）。
 - **完了**: リターン計算・年率換算（`app/domain/returns.py`）。単純／対数リターン、累積リターン（時間加重）、年率換算（geometric 既定）、年率ボラティリティ、頻度リサンプリング（単純=複利合成／対数=和）。定義は [`docs/design.md`](docs/design.md) §6.6 を参照。
 - **完了**: **データ確認 GUI（第1弾）**。`GET /api/data/series` を実データ（processed Parquet）へ配線し、series_type（adjusted_close / price / return / cumulative）と frequency（D/W/M）の再サンプリングを実装。`GET /api/assets` に各資産のデータ状態（取得可否・期間・行数・欠損・出所・取得日時・スナップショットハッシュ）を合成。フロントエンドの「データ」画面で 4 資産の状態一覧表と、選択資産の系列折れ線グラフ（Recharts）を確認できます。
+- **完了**: **米国モード / 日本モード（円ベース）対応**。資産セットを `us`（`assets.default.json`・USD基準）と `jp`（`assets.jp.json`・JPY基準）に分割し、`GET /api/assets?set=`・CLI `fetch --set`・ヘッダーのモード切替で選択。日本モードは円建て ETF 4本のため最適化・バックテストは**そのまま円ベース**で動作（FX換算なし）。基準通貨（`base_currency`/`currency`）は選択資産から導出。BL の JP 既定市場ポートフォリオは**仮値**（`DEFAULT_MARKET_WEIGHTS_JP`: 日本株25%/日本債券35%/外国株25%/外国債15%）で、警告と UI に「仮」と明示。**最適化・バックテスト・分析は分配金補正付き `adjusted_close` を使用**。
 - **完了**: **最適化サービス（PyPortfolioOpt・`static_allocation`）**。`app/optimization/service.py` に HTTP・DB 非依存の純粋計算層を実装。手法（max_sharpe / min_volatility / efficient_risk / efficient_return）、期待リターン（mean_historical_return / capm_return / ema_historical_return / **black_litterman**）、共分散（sample_cov / semicovariance / ledoit_wolf）を選択可能。生ウェイトと表示用 `clean_weights` を併記。入力検証・solver 失敗は日本語エラーで返す。固定データの単体テスト付き。
 - **完了**: **Black-Litterman 期待リターン推定**。`expected_return_method="black_litterman"` で市場均衡の先行情報（Π=δ·Σ·w_mkt+rf）と投資家の絶対ビュー（年率期待リターン（r_f込み）の水準）を合成して事後分布を求める。**市場ポートフォリオはユーザーがウェイトで設定可能**（省略時の既定値: 米国株式 22.88% / 米国債券 21.40% / 除く株式 23.73% / 除く債券 31.98%）。ビュー不確実性（ω=default/idzorek）、τ、リスク回避度（省略時は市場から自動逆算）を指定可能。**最適化（BL）タブ（GUI）に BL 専用フォームを用意**（期待リターンは black_litterman 固定）。ビューなしは市場均衡に一致。
 - **完了**: **最適化 API（`POST /api/optimizations`）**。`static_allocation` へ配線し、`OptimizationRequest`（対象資産・期間 `start`/`end`・手法・共分散・リスクフリー金利・制約）で同期実行。未取得資産・期間外は 400（日本語）、`OptimizationInputError` はユーザーに理解可能なメッセージで返す。`start`/`end` 入力によるルックアヘッド回避。API テスト付き。
@@ -289,6 +317,8 @@ curl -X POST http://localhost:8000/api/backtests \
 - 最適化（API + GUI）とバックテスト（固定ウェイト＋再最適化）は実装済み。再最適化の学習期間は「開始日またはデータ冒頭からリバランス日まで」（`lookback` は予約パラメータのまま）。
 - バックテストの「実行結果の再現可能な保存」（スナップショット・コードバージョンの永続化）は未実装（params echo による手動再現は可能）。`/api/runs` ・`/api/jobs` はメモリ内プレースホルダーのまま。
 - Black-Litterman は**絶対ビュー・ω=default/idzorek・τ・リスク回避度**に対応済み。**相対ビュー（Q/P 行列）・`omega="manual"`・市場時価総額（AUM）入力は未実装**。
+- 日本モードは**円建て ETF のみ**で構成（**外貨建て→円換算の汎用 FX レイヤは未実装**）。外国資産の為替変動は ETF 価格に織り込まれます。日本モードの**共通履歴開始は概ね 2017-12**（`jp_bond` / `ex_jp_bond` の設定が2017年）。
+- Black-Litterman の**日本モード既定市場ポートフォリオは仮値**（`DEFAULT_MARKET_WEIGHTS_JP`）。研究用の暫定値であり、必要に応じて UI で上書きしてください。
 - `price_max_staleness_days`（価格陳腐化の最大許容日数・既定5日）は**設定のみ定義で未適用**。判定式（`AssetDataStatus.end` からの暦日数 > 設定値）と適用方針は `docs/design.md` §6 に明記（警告の顕在化・将来の取引停止は今後）。
 - データ画面の系列グラフの系列種別は **adjusted_close / return / cumulative の3択**（`price`/raw_close は API では選択可だが GUI ドロップダウンには無い）。
 - アプリは **localhost 利用限定**（初期版）。ネットワーク公開時は認証・認可、CORS、レート制限、APIキーの秘密管理、監査ログを設計してから有効化します。

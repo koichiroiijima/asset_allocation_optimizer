@@ -1,7 +1,8 @@
 """資産マッピング設定の読み込み。
 
-`assets.default.json` を読んで `AssetDefinition` のリストへ変換する。
-この JSON はコミット対象の初期設定で、実際の商品・ユーザー環境に応じて差し替える。
+`assets.default.json`（米国モード `us`）と `assets.jp.json`（日本モード `jp`）を読んで
+`AssetDefinition` のリストへ変換する。これら JSON はコミット対象の初期設定で、実際の
+商品・ユーザー環境に応じて差し替える。
 """
 
 import json
@@ -11,7 +12,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-LogicalAsset = Literal["us_equity", "us_bond", "ex_us_equity", "ex_us_bond"]
+from app.domain.assets import AssetId, AssetSet
+
 AssetClass = Literal["equity", "bond"]
 DividendPolicy = Literal["reinvest", "cash"]
 
@@ -21,7 +23,8 @@ class AssetDefinition(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    logical_asset: LogicalAsset
+    logical_asset: AssetId
+    asset_set: AssetSet
     display_name: str
     default_ticker: str = Field(min_length=1)
     underlying: str | None = None

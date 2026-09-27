@@ -16,11 +16,18 @@ import sys
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
+from typing import cast
 
 from app.config.settings import get_settings
 from app.data.export import export_csv_processed
 from app.data.pipeline import PricePipeline
-from app.domain.assets import ASSET_LABELS, DEFAULT_ASSET_IDS, is_valid_asset_id
+from app.domain.assets import (
+    ASSET_IDS_BY_SET,
+    ASSET_LABELS,
+    AssetSet,
+    asset_set_for_assets,
+    is_valid_asset_id,
+)
 
 __version__ = "0.1.0"
 
@@ -41,7 +48,7 @@ def _parse_assets(values: list[str] | None) -> list[str] | None:
     for value in values:
         if not is_valid_asset_id(value):
             raise argparse.ArgumentTypeError(
-                f"未知の資産IDです: {value}（対応: {', '.join(DEFAULT_ASSET_IDS)}）"
+                f"未知の資産IDです: {value}（対応: {', '.join(sorted(ASSET_LABELS))}）"
             )
     return values
 
@@ -54,12 +61,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    fetch = sub.add_parser("fetch", help="4資産の価格を取得し raw/processed に保存する")
+    fetch = sub.add_parser("fetch", help="資産セットの価格を取得し raw/processed に保存する")
+    fetch.add_argument(
+        "--set",
+        dest="asset_set",
+        choices=sorted(ASSET_IDS_BY_SET),
+        default=None,
+        help="資産セット（モード）。既定: settings.default_asset_set（通常 us）",
+    )
     fetch.add_argument(
         "--asset",
         action="append",
         metavar="ASSET_ID",
-        help=f"対象資産ID（省略時は全4資産）。対応: {', '.join(DEFAULT_ASSET_IDS)}",
+        help=("対象資産ID（省略時は選んだ資産セットの全資産）。"),
     )
     fetch.add_argument("--start", type=_date_arg, help="取得開始日（YYYY-MM-DD）")
     fetch.add_argument("--end", type=_date_arg, help="取得終了日（YYYY-MM-DD）")
@@ -90,8 +104,33 @@ def _cmd_fetch(args: argparse.Namespace) -> int:
         print(f"エラー: {exc}", file=sys.stderr)
         return 2
 
-    targets = asset_ids or list(DEFAULT_ASSET_IDS)
-    pipeline = PricePipeline(settings)
+    # モードの決定: --set 優先。--asset のみ指定時は所属モードから推定。未指定は既定。
+    asset_set: str | None = args.asset_set
+    if asset_set is None and asset_ids:
+        asset_set = asset_set_for_assets(asset_ids)
+        if asset_set is None:
+            print(
+                "エラー: 資産IDが複数モードにまたがっています。--set でモードを指定してください。",
+                file=sys.stderr,
+            )
+            return 2
+    if asset_set is None:
+        asset_set = settings.default_asset_set
+
+    set_ids = ASSET_IDS_BY_SET.get(cast(AssetSet, asset_set))
+    if set_ids is None:
+        print(f"エラー: 未知の資産セットです: {asset_set}", file=sys.stderr)
+        return 2
+    invalid = [a for a in (asset_ids or []) if a not in set_ids]
+    if invalid:
+        print(
+            f"エラー: 資産セット {asset_set} に含まれない資産IDです: {', '.join(invalid)}",
+            file=sys.stderr,
+        )
+        return 2
+
+    targets = asset_ids or list(set_ids)
+    pipeline = PricePipeline(settings, asset_set=asset_set)
     try:
         summary = pipeline.run(asset_ids=asset_ids, start=args.start, end=args.end)
     finally:

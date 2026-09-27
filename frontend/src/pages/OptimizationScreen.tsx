@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api';
 import { useCompare } from '../compare/CompareContext';
 import { makeResultId, type StoredResult } from '../compare/types';
 import { useAssets } from '../hooks/useAssets';
+import { useAssetSet } from '../state/AssetSetContext';
 import type {
   Asset,
   CovarianceMethod,
@@ -172,6 +173,13 @@ export function OptimizationScreen() {
 
   const { assets, error: assetsError, loading: assetsLoading, refresh } = useAssets();
   const { addResult } = useCompare();
+  const { assetSet } = useAssetSet();
+
+  // モード切替時は前モードの選択・結果を初期化する。
+  useEffect(() => {
+    setForm({ ...INITIAL_FORM });
+    setResult(null);
+  }, [assetSet]);
 
   // 取得済み資産のみを対象にする（分析画面と同様の絞り込み）。
   const availableAssets = useMemo(

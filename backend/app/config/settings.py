@@ -47,7 +47,15 @@ class Settings(BaseSettings):
     data_root: Path = Path("../data")
     output_root: Path = Path("../outputs")
     sqlite_path: Path | None = None
-    asset_mapping_file: Path = Path("./app/config/assets.default.json")
+    # 資産セット（モード）→ 資産マッピング JSON のパス。
+    # 既定は us（米国モード）と jp（日本モード）。環境変数では JSON 文字列で上書きする。
+    asset_mapping_files: dict[str, Path] = Field(
+        default_factory=lambda: {
+            "us": Path("./app/config/assets.default.json"),
+            "jp": Path("./app/config/assets.jp.json"),
+        }
+    )
+    default_asset_set: str = "us"
 
     # ---- データ正規化 ----
     price_max_staleness_days: int = Field(default=5, ge=1)
@@ -101,6 +109,13 @@ def validate_settings(settings: Settings) -> None:
     # 基準通貨は初期版で必ず設定する（既定値以外の空文字を拒否）
     if not settings.portfolio_base_currency:
         raise ValueError("portfolio_base_currency は必須です")
+    if settings.default_asset_set not in settings.asset_mapping_files:
+        raise ValueError(
+            "default_asset_set が asset_mapping_files に存在しません: "
+            f"{settings.default_asset_set!r}"
+        )
+    if not settings.asset_mapping_files:
+        raise ValueError("asset_mapping_files が空です（少なくとも us が必要です）")
 
 
 @lru_cache(maxsize=1)

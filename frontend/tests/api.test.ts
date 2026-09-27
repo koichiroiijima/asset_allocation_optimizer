@@ -77,4 +77,25 @@ describe('ApiClient', () => {
     const client = createApiClient();
     await expect(client.getSeries({ asset_id: 'us_equity' })).rejects.toThrow('系列エラー');
   });
+
+  it('getAssets は set をクエリに付与する（未指定は付与しない）', async () => {
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ assets: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const client = createApiClient();
+
+    await client.getAssets('jp');
+    await client.getAssets();
+
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls[0]).toContain('/assets?set=jp');
+    expect(urls[1]).toContain('/assets');
+    expect(urls[1]).not.toContain('set=');
+  });
 });

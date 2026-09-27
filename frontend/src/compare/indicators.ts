@@ -39,8 +39,17 @@ function currency(value: number | null | undefined): string | undefined {
   return value.toLocaleString(undefined, { maximumFractionDigits: 0 });
 }
 
-/** 比較対象となり得る 4 資産の論理 ID。 */
-const ALL_ASSET_IDS = ['us_equity', 'us_bond', 'ex_us_equity', 'ex_us_bond'] as const;
+/** 比較対象となり得る全資産の論理 ID（us / jp 両モード）。 */
+const ALL_ASSET_IDS = [
+  'us_equity',
+  'us_bond',
+  'ex_us_equity',
+  'ex_us_bond',
+  'jp_equity',
+  'jp_bond',
+  'ex_jp_equity',
+  'ex_jp_bond',
+] as const;
 
 /**
  * 比較・保存画面・CSV で共通の列定義。
@@ -58,8 +67,8 @@ export interface MetricColumn {
   csvRaw: (r: StoredResult) => number | string | null | undefined;
 }
 
-/** 最適化結果の列定義。 */
-function optimizationColumns(): MetricColumn[] {
+/** 最適化結果の列定義。`assetIds` は重み列に使う資産ID（結果から収集した和集合）。 */
+function optimizationColumns(assetIds: readonly string[] = ALL_ASSET_IDS): MetricColumn[] {
   return [
     {
       key: 'expected_annual_return',
@@ -90,8 +99,8 @@ function optimizationColumns(): MetricColumn[] {
         isOptimizationResult(r.result) ? decimal(r.result.metrics.sharpe_ratio, 2) : undefined,
       csvRaw: (r) => (isOptimizationResult(r.result) ? r.result.metrics.sharpe_ratio : undefined),
     },
-    // 4 資産それぞれのウェイトを列化する
-    ...ALL_ASSET_IDS.map(
+    // 各資産のウェイトを列化する（資産IDは結果から収集した和集合）
+    ...assetIds.map(
       (assetId): MetricColumn => ({
         key: `weight_${assetId}`,
         kind: 'optimization',
@@ -148,7 +157,30 @@ function backtestColumns(): MetricColumn[] {
   ];
 }
 
+/**
+ * 結果集合に含まれるウェイト列用の資産ID（順序は初出順の和集合）。
+ * us / jp 両モードが混在しても、各結果に存在する資産だけを列にする。
+ */
+export function weightAssetIdsFor(
+  kind: StoredResultKind,
+  results: StoredResult[],
+): string[] {
+  const ids = new Set<string>();
+  for (const r of results) {
+    if (r.kind !== kind) continue;
+    if (kind === 'optimization' && isOptimizationResult(r.result)) {
+      for (const id of Object.keys(r.result.clean_weights)) ids.add(id);
+    } else if (kind === 'backtest' && isBacktestResult(r.result)) {
+      for (const id of r.result.asset_ids) ids.add(id);
+    }
+  }
+  return [...ids];
+}
+
 /** 結果種別ごとの列定義を返す。 */
-export function getColumns(kind: StoredResultKind): MetricColumn[] {
-  return kind === 'optimization' ? optimizationColumns() : backtestColumns();
+export function getColumns(
+  kind: StoredResultKind,
+  assetIds: readonly string[] = ALL_ASSET_IDS,
+): MetricColumn[] {
+  return kind === 'optimization' ? optimizationColumns(assetIds) : backtestColumns();
 }

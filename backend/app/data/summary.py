@@ -7,8 +7,11 @@ IO を行わず、`pd.DataFrame` から `AssetDataStatus` を組み立てる。
 
 from __future__ import annotations
 
+from typing import cast
+
 import pandas as pd
 
+from app.domain.assets import AssetId
 from app.schemas.asset import AssetDataStatus
 
 
@@ -47,7 +50,7 @@ def summarize_series(df: pd.DataFrame) -> AssetDataStatus:
             retrieved_at = ts.to_pydatetime()
 
     return AssetDataStatus(
-        logical_asset=asset_id,
+        logical_asset=cast(AssetId, asset_id),
         available=True,
         start=dates.min().date() if len(dates) else None,
         end=dates.max().date() if len(dates) else None,

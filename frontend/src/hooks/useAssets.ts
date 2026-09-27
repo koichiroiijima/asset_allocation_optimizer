@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
 import type { AssetListResponse } from '../api/types';
+import { useAssetSet } from '../state/AssetSetContext';
 
 interface UseAssetsResult {
   /** 資産一覧（データ状態付き）。未取得時は null。 */
@@ -13,8 +14,12 @@ interface UseAssetsResult {
   refresh: () => Promise<void>;
 }
 
-/** 4 資産＋データ状態の一覧を取得し、保持するフック。 */
+/**
+ * 現在の資産セット（モード）の資産＋データ状態一覧を取得し、保持するフック。
+ * モード切替（AssetSetContext）に追従して再取得する。
+ */
 export function useAssets(): UseAssetsResult {
+  const { assetSet } = useAssetSet();
   const [assets, setAssets] = useState<AssetListResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -23,7 +28,7 @@ export function useAssets(): UseAssetsResult {
     setLoading(true);
     setError(null);
     try {
-      const result = await api.getAssets();
+      const result = await api.getAssets(assetSet);
       setAssets(result);
     } catch (e) {
       setAssets(null);
@@ -31,7 +36,7 @@ export function useAssets(): UseAssetsResult {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [assetSet]);
 
   useEffect(() => {
     void refresh();

@@ -153,3 +153,33 @@ def test_unknown_asset_raises() -> None:
     provider = _provider(httpx.Client(transport=httpx.MockTransport(handler)))
     with pytest.raises(ProviderDataError):
         provider.fetch_history("unknown")
+
+
+def _jp_fixture_body() -> dict[str, object]:
+    path = Path(__file__).parent / "fixtures" / "yahoo_jp_sample.json"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def test_jp_symbol_maps_currency_timezone_calendar_and_adjusted_close() -> None:
+    """東京銘柄は通貨 JPY・カレンダー jp で、分配金補正済み adjclose を保持する。"""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=_jp_fixture_body())
+
+    provider = YahooPriceProvider(
+        {"jp_equity": "1306.T"},
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    records = provider.fetch_history("jp_equity")
+
+    assert len(records) == 4
+    first = records[0]
+    assert first.currency == "JPY"
+    assert first.timezone == "Asia/Tokyo"
+    assert first.calendar == "jp"
+    # 分配金補正付き Adjusted Close が close を下回る（補正が効いている）
+    assert first.raw_close == 292.45
+    assert first.adjusted_close == 280.15
+    assert first.adjusted_close < first.raw_close
+    # 配当イベントが distribution に入る
+    assert records[2].distribution == 5.79

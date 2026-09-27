@@ -32,8 +32,10 @@ from pypfopt import (  # type: ignore[import-untyped]
 )
 from pypfopt.exceptions import OptimizationError  # type: ignore[import-untyped]
 
+from app.domain.assets import asset_set_for_assets
 from app.schemas.optimization import (
     DEFAULT_MARKET_WEIGHTS,
+    DEFAULT_MARKET_WEIGHTS_BY_SET,
     CovarianceMethod,
     OptimizationMetrics,
     OptimizationResult,
@@ -112,6 +114,14 @@ def _resolve_market_weights(
     0 に落ちた資産・デフォルトの外挿が起きた場合は警告を積む。
     """
     base = DEFAULT_MARKET_WEIGHTS if market_weights is None else market_weights
+    if market_weights is None:
+        asset_set = asset_set_for_assets(assets)
+        base = DEFAULT_MARKET_WEIGHTS_BY_SET.get(asset_set or "us", DEFAULT_MARKET_WEIGHTS)
+        if asset_set == "jp":
+            warnings.append(
+                "日本モードの既定市場ポートフォリオは仮値です（研究用）。"
+                "必要に応じて市場ウェイトを指定してください。"
+            )
     w = pd.Series(base, dtype="float64").reindex(assets, fill_value=0.0)
     total = w.sum()
     if total <= 0.0:

@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { CompareProvider } from '../compare/CompareContext';
+import { AssetSetProvider } from '../state/AssetSetContext';
 import { BlOptimizationScreen } from './BlOptimizationScreen';
 
 /** CompareProvider で包んで描画する。実行結果の「比較に追加」用。 */
@@ -303,5 +304,100 @@ describe('BlOptimizationScreen', () => {
     await user.click(screen.getByRole('button', { name: '最適化を実行' }));
 
     await screen.findByText(/市場ポートフォリオのウェイトの合計を 100%/);
+  });
+
+  it('日本モードでは JP 仮既定の市場ウェイトと JP ヒントが表示される', async () => {
+    const jpAssets = {
+      assets: [
+        {
+          logical_asset: 'jp_equity',
+          asset_set: 'jp',
+          display_name: '日本株式',
+          default_ticker: '1306.T',
+          underlying: null,
+          asset_class: 'equity',
+          currency: 'JPY',
+          fx_hedged: false,
+          dividend_policy: 'reinvest',
+          history_start: null,
+          note: '',
+          data_status: {
+            logical_asset: 'jp_equity',
+            available: true,
+            start: '2024-01-02',
+            end: '2024-01-05',
+            rows: 4,
+            missing: 0,
+            source: 'yahoo',
+            price_type: 'adjusted_close',
+            retrieved_at: '2024-01-06T00:00:00Z',
+            snapshot_hash: 'jp1',
+          },
+        },
+        {
+          logical_asset: 'jp_bond',
+          asset_set: 'jp',
+          display_name: '日本債券',
+          default_ticker: '2510.T',
+          underlying: null,
+          asset_class: 'bond',
+          currency: 'JPY',
+          fx_hedged: false,
+          dividend_policy: 'reinvest',
+          history_start: null,
+          note: '',
+          data_status: {
+            logical_asset: 'jp_bond',
+            available: true,
+            start: '2024-01-02',
+            end: '2024-01-05',
+            rows: 4,
+            missing: 0,
+            source: 'yahoo',
+            price_type: 'adjusted_close',
+            retrieved_at: '2024-01-06T00:00:00Z',
+            snapshot_hash: 'jp2',
+          },
+        },
+      ],
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/assets')) return Promise.resolve(jsonResponse(jpAssets));
+      if (url.includes('/health')) {
+        return Promise.resolve(jsonResponse({ status: 'ok', app: 'a', version: '1', app_env: 'test' }));
+      }
+      return Promise.resolve(jsonResponse({ detail: 'not found' }, 404));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const user = userEvent.setup();
+    render(
+      <AssetSetProvider initialAssetSet="jp">
+        <CompareProvider>
+          <BlOptimizationScreen />
+        </CompareProvider>
+      </AssetSetProvider>,
+    );
+
+    await screen.findByRole('listbox', { name: /対象資産/ });
+    await user.selectOptions(screen.getByRole('listbox', { name: /対象資産/ }), [
+      'jp_equity',
+      'jp_bond',
+    ]);
+    // 資産一覧は set=jp で取得される
+    expect(fetchMock.mock.calls.map((c) => String(c[0])).some((u) => u.includes('/assets?set=jp'))).toBe(true);
+
+    const weightInputs = screen
+      .getByText(/市場ポートフォリオのウェイト/)
+      .closest('label')!
+      .querySelectorAll('input');
+    const values = Array.from(weightInputs)
+      .map((i) => i.value)
+      .sort();
+    // JP 仮既定（jp_equity 0.25 / jp_bond 0.35）を選択2件で合計100%へ正規化: 41.67 / 58.33
+    expect(values).toEqual(['41.67', '58.33']);
+    // ヒントに JP 銘柄が表示される（米国銘柄ではない）
+    expect(screen.getByText(/1550\.T/)).toBeInTheDocument();
   });
 });

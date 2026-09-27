@@ -72,3 +72,54 @@ def test_assets_static_fields_present(client: TestClient, tmp_settings: Settings
     assert us_equity["display_name"]
     assert us_equity["default_ticker"] == "VTI"
     assert us_equity["currency"] == "USD"
+    assert us_equity["asset_set"] == "us"
+
+
+def test_assets_jp_set(client: TestClient) -> None:
+    """set=jp で日本モードの4資産（JPY）が返る。"""
+    resp = client.get("/api/assets", params={"set": "jp"})
+    assert resp.status_code == 200
+    assets = resp.json()["assets"]
+    assert {a["logical_asset"] for a in assets} == {
+        "jp_equity",
+        "jp_bond",
+        "ex_jp_equity",
+        "ex_jp_bond",
+    }
+    assert {a["asset_set"] for a in assets} == {"jp"}
+    assert {a["currency"] for a in assets} == {"JPY"}
+    jp_equity = next(a for a in assets if a["logical_asset"] == "jp_equity")
+    assert jp_equity["default_ticker"] == "1306.T"
+
+
+def test_assets_unknown_set_returns_400(client: TestClient) -> None:
+    """未知の set は 400（日本語）を返す。"""
+    resp = client.get("/api/assets", params={"set": "eu"})
+    assert resp.status_code == 400
+    assert "未知の資産セット" in resp.json()["detail"]
+
+
+def test_assets_jp_data_status(client: TestClient, tmp_settings: Settings) -> None:
+    """set=jp でも processed データ状態が合成される。"""
+    repo = ParquetPriceRepository(tmp_settings.processed_dir)
+    repo.save_series(
+        "jp_equity",
+        pd.DataFrame(
+            {
+                "date": pd.to_datetime(["2024-01-02", "2024-01-03"]),
+                "asset_id": ["jp_equity", "jp_equity"],
+                "raw_close": [292.45, 293.1],
+                "adjusted_close": [280.15, np.nan],
+                "distribution": [0.0, 0.0],
+                "currency": ["JPY"] * 2,
+                "source": ["yahoo", "yahoo"],
+                "source_symbol": ["1306.T"] * 2,
+                "price_type": ["adjusted_close"] * 2,
+            }
+        ),
+    )
+    resp = client.get("/api/assets", params={"set": "jp"})
+    saved = next(a for a in resp.json()["assets"] if a["logical_asset"] == "jp_equity")
+    assert saved["data_status"]["available"] is True
+    assert saved["data_status"]["missing"] == 1
+    assert saved["data_status"]["end"] == "2024-01-03"

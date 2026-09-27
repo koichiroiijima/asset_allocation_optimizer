@@ -1,0 +1,62 @@
+[
+  {
+    "logical_asset": "jp_equity",
+    "asset_set": "jp",
+    "display_name": "日本株式",
+    "default_ticker": "1306.T",
+    "underlying": "TOPIX",
+    "asset_class": "equity",
+    "currency": "JPY",
+    "duration": null,
+    "credit_risk": null,
+    "fx_hedged": false,
+    "dividend_policy": "reinvest",
+    "history_start": null,
+    "note": "NEXT FUNDS TOPIX 上場投信（円建て・東京証券取引所）。分配金補正付き Adjusted Close を総収益計算に使用"
+  },
+  {
+    "logical_asset": "jp_bond",
+    "asset_set": "jp",
+    "display_name": "日本債券",
+    "default_ticker": "2510.T",
+    "underlying": "NOMURA-BPI 総合",
+    "asset_class": "bond",
+    "currency": "JPY",
+    "duration": "intermediate",
+    "credit_risk": "investment_grade",
+    "fx_hedged": false,
+    "dividend_policy": "reinvest",
+    "history_start": null,
+    "note": "NEXT FUNDS 日本債券 NOMURA-BPI 上場投信（円建て）。設定は2017-12のため JPモードの共通履歴開始は 2017-12 頃"
+  },
+  {
+    "logical_asset": "ex_jp_equity",
+    "asset_set": "jp",
+    "display_name": "日本を除く外国株式",
+    "default_ticker": "1550.T",
+    "underlying": "MSCI Kokusai Index",
+    "asset_class": "equity",
+    "currency": "JPY",
+    "duration": null,
+    "credit_risk": null,
+    "fx_hedged": false,
+    "dividend_policy": "reinvest",
+    "history_start": null,
+    "note": "MAXIS 全世界株式（MSCI Kokusai）上場投信。円建て・為替ヘッジなし（ETF価格に為替が反映）"
+  },
+  {
+    "logical_asset": "ex_jp_bond",
+    "asset_set": "jp",
+    "display_name": "日本を除く外国債券",
+    "default_ticker": "2511.T",
+    "underlying": "FTSE 世界国債インデックス（日本を除く）",
+    "asset_class": "bond",
+    "currency": "JPY",
+    "duration": "intermediate",
+    "credit_risk": "investment_grade",
+    "fx_hedged": false,
+    "dividend_policy": "reinvest",
+    "history_start": null,
+    "note": "NEXT FUNDS 外国債券・FTSE世界国債インデックス（日本を除く）為替ヘッジなし。設定は2017-12のため JPモードの共通履歴開始は 2017-12 頃"
+  }
+]

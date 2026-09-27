@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { exportCsv, exportJson } from '../compare/export';
-import { getColumns, type MetricColumn } from '../compare/indicators';
+import { getColumns, weightAssetIdsFor, type MetricColumn } from '../compare/indicators';
 import { useCompare } from '../compare/CompareContext';
 import { KIND_LABELS, type StoredResult, type StoredResultKind } from '../compare/types';
 
@@ -32,8 +32,10 @@ interface RowView {
 /** 種別ごとに結果をまとめ、表示セル値を列ごとに引き出す。 */
 function groupByKind(results: StoredResult[]): Map<StoredResultKind, RowView[]> {
   const map = new Map<StoredResultKind, RowView[]>();
+  // 表示する資産は結果に存在するものだけ（us / jp の混在に対応）。
+  const assetIds = weightAssetIdsFor('optimization', results);
   for (const result of results) {
-    const columns = getColumns(result.kind);
+    const columns = getColumns(result.kind, assetIds);
     const values = columns.map((c) => c.extract(result));
     const group = map.get(result.kind) ?? [];
     group.push({ result, values });
@@ -47,7 +49,9 @@ function buildCsvCells(results: StoredResult[]): string[][] {
   const header = ['ラベル', '種別', '実行日時', '期間'];
   // 列は「全種別の列」を種別順に並べる（重複ラベルも列が分かるよう残す）
   const kinds: StoredResultKind[] = ['optimization', 'backtest'];
-  const allColumns: MetricColumn[] = kinds.flatMap((k) => getColumns(k));
+  const allColumns: MetricColumn[] = kinds.flatMap((k) =>
+    getColumns(k, weightAssetIdsFor('optimization', results)),
+  );
   header.push(...allColumns.map((c) => c.label));
   const lines = results.map((r) => {
     const values = allColumns.map((c) => {

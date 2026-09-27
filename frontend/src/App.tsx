@@ -2,6 +2,7 @@ import React from 'react';
 import { Header } from './components/Header';
 import { HealthCheck } from './components/HealthCheck';
 import { CompareProvider } from './compare/CompareContext';
+import { AssetSetProvider } from './state/AssetSetContext';
 import { DataScreen } from './pages/DataScreen';
 import { AnalysisScreen } from './pages/AnalysisScreen';
 import { OptimizationScreen } from './pages/OptimizationScreen';
@@ -31,14 +32,16 @@ export function App() {
   const activeScreen = SCREENS.find((s) => s.key === active) ?? SCREENS[0];
 
   return (
-    <CompareProvider>
-      <div className="app-shell">
-        <Header active={active} onNavigate={setActive} screens={SCREENS} />
-        <main>
-          <HealthCheck />
-          <activeScreen.Component />
-        </main>
-      </div>
-    </CompareProvider>
+    <AssetSetProvider>
+      <CompareProvider>
+        <div className="app-shell">
+          <Header active={active} onNavigate={setActive} screens={SCREENS} />
+          <main>
+            <HealthCheck />
+            <activeScreen.Component />
+          </main>
+        </div>
+      </CompareProvider>
+    </AssetSetProvider>
   );
 }

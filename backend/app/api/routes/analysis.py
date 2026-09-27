@@ -18,6 +18,7 @@ from app.api.deps import get_settings
 from app.api.route_helpers import load_price_matrix
 from app.config import Settings
 from app.data.repository import ParquetPriceRepository
+from app.domain.assets import base_currency_for_assets
 from app.domain.returns import (
     correlation_matrix,
     cumulative_return,
@@ -120,7 +121,7 @@ def get_analysis(
     if not used_assets:
         # 全資産が未取得・期間外の場合は空レスポンス＋警告（例外にしない）。
         return AnalysisResponse(
-            currency=settings.instrument_trading_currency,
+            currency=base_currency_for_assets(request.asset_ids),
             assets_used=[],
             window=request.window,
             correlation=CorrelationMatrix(),
@@ -149,7 +150,7 @@ def get_analysis(
         warnings.append("相関の解釈には2資産以上必要です。")
 
     return AnalysisResponse(
-        currency=settings.instrument_trading_currency,
+        currency=base_currency_for_assets(used_assets),
         assets_used=used_assets,
         window=request.window,
         prices=[AssetSeries(asset_id=a, points=_to_points(prices[a])) for a in used_assets],

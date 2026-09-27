@@ -30,7 +30,7 @@ uv run mypy app        # 型チェック
 
 ## 構成（抜粋）
 
-- `app/config/` — Pydantic Settings と資産マッピング設定
+- `app/config/` — Pydantic Settings、資産セット定義（`assets.default.json`=米国モード / `assets.jp.json`=日本モード）
 - `app/schemas/` — API スキーマ（OpenAPI の契約。asset / series / analysis / optimization / backtest / job）
 - `app/domain/` — 純粋な計算ロジック（リターン計算・年率換算・頻度リサンプリング・ローリングボラ・相関行列 `returns.py`）
 - `app/data/` — データプロバイダー／リポジトリ抽象（Parquet + SQLite 索引 + スナップショットハッシュ）
@@ -38,12 +38,24 @@ uv run mypy app        # 型チェック
 - `app/backtest/` — バックテストエンジン（固定ウェイト・リバランス `run_backtest` 実装済み）
 - `app/api/` — FastAPI ルーター（`routes/` 配下に assets / series / analysis / optimizations / backtests / jobs / runs、`route_helpers.py` が複数資産の価格行列整列を共用）
 
+### 資産セット（モード）とデータ取得
+
+```bash
+# 米国モード（us・既定・USD基準）の4資産を取得
+uv run python -m app.cli fetch
+
+# 日本モード（jp・JPY基準・円建て ETF）の4資産を取得
+uv run python -m app.cli fetch --set jp
+```
+
+最適化・バックテスト・分析の入力は**分配金補正付き `adjusted_close`**（Yahoo `indicators.adjclose`）を使用します（`raw_close` は表示専用）。
+
 ### 実装済みエンドポイント
 
 | メソッド | パス | 内容 |
 | --- | --- | --- |
 | `GET` | `/api/health` | 稼働状態 |
-| `GET` | `/api/assets` | 資産定義＋データ状態（data_status） |
+| `GET` | `/api/assets?set={us\|jp}` | 資産定義＋データ状態（data_status。既定 us・未知名は400） |
 | `GET` | `/api/data/series` | 単一資産の系列（adjusted_close / price / return / cumulative、D/W/M、NaN 除外） |
 | `GET` | `/api/data/analysis` | 複数資産の分析データ（価格・累積リターン・ローリングボラ・相関行列、未取得は除外して警告） |
 | `POST` | `/api/optimizations` | 最適化（`static_allocation`）の同期実行。`start`/`end` で期間を絞りルックアヘッドを回避 |

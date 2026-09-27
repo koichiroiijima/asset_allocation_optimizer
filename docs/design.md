@@ -35,7 +35,8 @@ backend/
     config/
       settings.py   # Pydantic Settings + validate_settings + get_settings（lru_cache）
       assets.py     # 資産定義読み込み
-      assets.default.json  # 4資産の初期マッピング（仮）
+      assets.default.json  # 米国モード（us）の4資産マッピング
+      assets.jp.json      # 日本モード（jp）の4資産マッピング（円建て ETF）
     domain/
       assets.py     # 論理資産の型・定義辞書
       returns.py    # リターン計算・年率換算・頻度リサンプリング・rolling_volatility・correlation_matrix（実装済み）
@@ -104,7 +105,8 @@ docs/design.md      # 本メモ
 | `fx_policy` | unhedged | 為替ヘッジ方針（unhedged / hedged） |
 | `data_root` / `output_root` | ../data / ../outputs | ルートからの相対 |
 | `sqlite_path` | data_root/app.db | 未指定時は data_root 配下 |
-| `asset_mapping_file` | app/config/assets.default.json | 資産マッピング |
+| `asset_mapping_files` | `{"us": app/config/assets.default.json, "jp": app/config/assets.jp.json}` | 資産セット（モード）→ マッピング JSON |
+| `default_asset_set` | `us` | 既定モード（`GET /api/assets`・CLI `--set` 省略時） |
 | `price_max_staleness_days` | 5 | 価格陳腐化の最大許容日数（暦日。現状は設定のみ定義・未適用） |
 | `annualization_factor` | 252 | 日次→年率換算係数 |
 | `cors_origins` | http://localhost:5173 | ローカル開発のみ |
@@ -113,7 +115,11 @@ docs/design.md      # 本メモ
 
 ## 5. データモデル
 
-### 5.1 4資産の論理名（設定で差し替え可能）
+### 5.1 4資産の論理名（資産セット＝モード）
+
+資産セット（モード）は `us`（米国・基準通貨 USD）と `jp`（日本・基準通貨 JPY）の2つ。論理IDはモードごとに一意で、processed Parquet はファイル名（論理ID）で管理する。
+
+**`us` モード**
 
 | 論理資産 | 意味 |
 | --- | --- |
@@ -122,7 +128,20 @@ docs/design.md      # 本メモ
 | `ex_us_equity` | 米国を除く株式 |
 | `ex_us_bond` | 米国を除く債券 |
 
-資産定義（`assets.default.json`）には、論理資産・表示名・既定ティッカー・対象指数・資産クラス・通貨・デュレーション・信用リスク・為替ヘッジ・分配金再投資の扱いを含める。**MVP の既定値は仮**（後述の未確定事項参照）。
+**`jp` モード（すべて円建て・東京証券取引所）**
+
+| 論理資産 | 意味 | 既定ティッカー |
+| --- | --- | --- |
+| `jp_equity` | 日本株式 | `1306.T`（TOPIX） |
+| `jp_bond` | 日本債券 | `2510.T`（NOMURA-BPI 総合） |
+| `ex_jp_equity` | 日本を除く外国株式 | `1550.T`（MSCI Kokusai・ヘッジなし） |
+| `ex_jp_bond` | 日本を除く外国債券 | `2511.T`（FTSE 世界国債 ex 日本・ヘッジなし） |
+
+`jp` モードは全銘柄が円建てのため、価格行列が**そのまま円ベース**になり、外貨→円の換算レイヤを要しない（汎用 FX 換算は未実装）。共通履歴開始は概ね 2017-12（`jp_bond` / `ex_jp_bond` の設定年）。
+
+資産定義（`assets.default.json` / `assets.jp.json`）には、論理資産・`asset_set`・表示名・既定ティッカー・対象指数・資産クラス・通貨・デュレーション・信用リスク・為替ヘッジ・分配金再投資の扱いを含める。**MVP の既定値は仮**（後述の未確定事項参照）。
+
+**分配金補正（必須）**: 最適化・バックテスト・分析の入力は Yahoo `indicators.adjclose` 由来の**分配金補正付き `adjusted_close`**を使う。`raw_close` はデータ画面の表示専用で計算に使わない。分配金額は `distribution` に別途保存する。
 
 ### 5.2 推奨データレコード
 
@@ -362,4 +381,6 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
 - **2026-08-23** — **バックテスト画面の入力を改善**。①**初期資金・コスト率・リスクフリー金利の入力欄を `step="any"` に変更**。従来 `initial_capital` が `step=10000` だったため、既定値 1,000,000 が HTML5 の刻み検証（有効値 = min + n×step）に合致せず送信時にブラウザがブロックする不具合があった。数値検証はクライアントの `validateForm`（NaN・0 以下）とサーバー側スキーマ（`gt=0`）で担保する（UI に「正の数値（小数可）」ヒントを追加）。②**「リバランス時に再最適化」チェックボックスを廃止**し、**再最適化元セレクトの選択有無だけで `reoptimize` を制御**する方式へ変更（ユーザー指示）。未選択＝固定ウェイト（`reoptimize: false`・`optimization_params` なし）、選択＝そのアルゴリズムで再最適化。`FormState.reoptimize` と `validateForm` の「選択が必要」チェックを削除。セレクトの「未選択」は「未選択（固定ウェイト）」表記に変更。フロントのみ変更（backend 不変）。テスト: `BacktestScreen.test.tsx` を新仕様へ更新（小数初期資金の送信・`step="any"` 属性・選択のみで `reoptimize=true`／未選択で `false` を検証）。frontend 41 件 green。
 - **2026-09-27** — **開発サーバーの起動・停止スクリプトを整備**（OpenCode 作業）。従来は Makefile に起動系（`dev` / `dev-backend` / `dev-frontend`）のみで停止手段が無く、`dev: dev-backend dev-frontend` は make の逐次実行のため uvicorn がブロックして frontend が起動しない不具合があった。①`scripts/start.sh` / `scripts/stop.sh` を新設。`start.sh` は backend / frontend を `setsid` で独立プロセスグループとしてバックグラウンド起動し、PID を `.run/`・ログを `logs/` に保存（`logs/` は既存 ignore、`.run/` を `.gitignore` に追加）。Vite が指定ポート使用中に別ポートへ移る場合はログから実際の URL を拾って表示。`stop.sh` は PID ファイルの**プロセスグループごとの停止**を第一手段とし、PID ファイルが無い手動起動分は `pkill -f`（`uvicorn app.main:app`／`frontend/node_modules/.bin/vite`）で停止。**ポート番号による停止（`fuser`）は他プロジェクトを巻き込むため採用しない**（検証時に別プロジェクトの vite を誤停止したため撤回）。②Makefile に `start` / `stop` / `stop-backend` / `stop-frontend` を追加し、`dev` を `@$(MAKE) -j2 dev-backend dev-frontend` に変更して並列フォアグラウンド起動（Ctrl+C 停止）を実現。③README の標準コマンド表・開発サーバー節を更新。backend 163 件・frontend 41 件のテストは変更なしで green、`make start`→health 200→`make stop` の一連動作と誤停止しないことを実機確認。
 
-- **テスト数（実測）**: 現時点で backend **163 件**（`tests/test_*.py` の `def test_` 集計: test_returns 33・test_optimization 26・test_backtest 20・test_optimizations_api 14・test_backtests_api 13 ほか 17 ファイル）、frontend **41 件**（`it(`/`test(` 集計: BacktestScreen 9・BlOptimizationScreen 7・OptimizationScreen 7・CompareScreen 6・DataScreen 3・App 3・AnalysisScreen 2・api 4）。design.md §12 に記す数値は各時点のスナップショット値。
+- **2026-09-27** — **円ベース4資産（日本モード）を追加**（OpenCode 作業・ユーザー決定）。①**資産セット（モード）**を導入: `us`（米国・USD基準・既存 `assets.default.json`）と `jp`（日本・JPY基準・新規 `assets.jp.json`）。論理IDは `jp_equity` / `jp_bond` / `ex_jp_equity` / `ex_jp_bond` を追加（`AssetId` を8値へ拡張）。②**データソース切替**: CLI `fetch --set us|jp`（`--asset` のみなら所属モードを自動判定・混在はエラー）、`GET /api/assets?set={us|jp}`（既定 `settings.default_asset_set`＝`us`・未知名は400）。設定は `Settings.asset_mapping_files`（dict）＋ `default_asset_set` に変更。③**円ベース計算**: `jp` は全銘柄が円建て ETF（`1306.T` / `2510.T` / `1550.T` / `2511.T`）のため価格行列がそのまま円ベース。**FX換算レイヤは作らない**（ユーザー決定）。基準通貨は `ASSET_SET_BASE_CURRENCY`（us=USD/jp=JPY）で `series`/`analysis`/`backtests`/`optimizations`（`base_currency`）へ配線。④**分配金補正（必須要件）**: 最適化・バックテスト・分析は Yahoo `indicators.adjclose` の `adjusted_close` を使い、`raw_close` は表示専用。`distribution` は別途保存。Yahoo provider の `calendar` を固定 `us` から判定（JPY/Asia/Tokyo/`.T` → `jp`）へ変更。⑤**BL の JP 仮既定**: `DEFAULT_MARKET_WEIGHTS_JP`（日本株25%/日本債券35%/外国株25%/外国債15%）を追加し、既定使用時に「仮値」警告を返す（`BL_DEFAULT_MARKET_WEIGHTS_BY_SET` をフロントにも）。⑥**最小のモード切替 GUI**: `AssetSetContext` と Header の「米国/日本」トグルを追加、`useAssets` はモード追従で `?set=` を付与、切替時に各画面の選択・結果を初期化。比較画面のウェイト列は結果から動的生成。⑦テスト: backend +15件（178件）・frontend +3件（44件）。実データは `fetch --set jp`（未実行・要ネットワーク）。**汎用FX換算・JP相対ビュー・GUI本格改善は後続（#2）**。
+
+- **テスト数（実測）**: 現時点で backend **178 件**・frontend **44 件**。design.md §12 に記す数値は各時点のスナップショット値。JPモード追加前は backend 163 件・frontend 41 件。

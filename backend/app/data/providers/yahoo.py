@@ -37,6 +37,18 @@ def _hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _calendar_for(currency: str, timezone_name: str | None, symbol: str) -> str:
+    """価格の基準カレンダー名を推定する（東京=jp、それ以外=us）。
+
+    Yahoo の `calendar` はアプリ内の系列整列・表示用のラベル。東京証券取引所の銘柄は
+    通貨 JPY・タイムゾーン Asia/Tokyo・ティッカー末尾 `.T` のいずれかで判定できる。
+    未知の取引所は "us" にフォールバックする（推測で新しいカレンダーを作らない）。
+    """
+    if currency == "JPY" or symbol.endswith(".T") or (timezone_name or "").startswith("Asia/Tokyo"):
+        return "jp"
+    return "us"
+
+
 class YahooPriceProvider:
     """クエリ2ホストの chart API から価格系列を取得するプロバイダー。"""
 
@@ -133,6 +145,7 @@ class YahooPriceProvider:
         source_symbol = str(meta.get("symbol") or self._symbols[asset_id])
         now = datetime.now(UTC)
         request_hash = _hash_text(response.text)
+        calendar = _calendar_for(currency, str(tz_name) if tz_name else None, source_symbol)
 
         records: list[PriceRecord] = []
         for i, ts in enumerate(timestamps):
@@ -158,7 +171,7 @@ class YahooPriceProvider:
                     price_type="adjusted_close",
                     retrieved_at=now,
                     timezone=str(tz_name) if tz_name else "UTC",
-                    calendar="us",
+                    calendar=calendar,
                     available_at=now,
                     source_request_hash=request_hash,
                 )

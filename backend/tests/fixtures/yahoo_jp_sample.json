@@ -1,0 +1,54 @@
+{
+  "chart": {
+    "result": [
+      {
+        "meta": {
+          "currency": "JPY",
+          "symbol": "1306.T",
+          "exchangeTimezoneName": "Asia/Tokyo",
+          "regularMarketPrice": 292.45,
+          "firstTradeDate": 1231113600,
+          "regularMarketTime": 1706749200,
+          "exchangeName": "JPX"
+        },
+        "timestamp": [
+          1706749200,
+          1706835600,
+          1706922000,
+          1707094800
+        ],
+        "indicators": {
+          "quote": [
+            {
+              "close": [
+                292.45,
+                null,
+                293.1,
+                294.0
+              ]
+            }
+          ],
+          "adjclose": [
+            {
+              "adjclose": [
+                280.15,
+                null,
+                280.77,
+                281.63
+              ]
+            }
+          ]
+        },
+        "events": {
+          "dividends": {
+            "1706922000": {
+              "type": "DIVIDEND",
+              "amount": 5.79
+            }
+          }
+        }
+      }
+    ],
+    "error": null
+  }
+}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   CartesianGrid,
   Legend,
@@ -13,6 +13,7 @@ import { api } from '../api';
 import { useCompare } from '../compare/CompareContext';
 import { makeResultId, type StoredResult } from '../compare/types';
 import { useAssets } from '../hooks/useAssets';
+import { useAssetSet } from '../state/AssetSetContext';
 import { isOptimizationResult } from '../compare/indicators';
 import type {
   Asset,
@@ -156,6 +157,18 @@ export function BacktestScreen() {
 
   const { assets, error: assetsError, loading: assetsLoading, refresh } = useAssets();
   const { results: savedResults, addResult } = useCompare();
+  const { assetSet } = useAssetSet();
+
+  // モード切替時は前モードの資産選択・ウェイト・再最適化元・結果を初期化する。
+  useEffect(() => {
+    setForm((prev) => ({
+      ...prev,
+      selectedAssetIds: [],
+      weights: {},
+      rebalanceOptimizationId: '',
+    }));
+    setResult(null);
+  }, [assetSet]);
 
   // 再最適化元に選べる最適化結果一覧（比較・保存に蓄積された最適化のみ）。
   const optimizationOptions = useMemo(

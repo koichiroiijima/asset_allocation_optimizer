@@ -319,3 +319,42 @@ def test_backtest_reoptimize_with_black_litterman_returns_rebalance_weights(
     body = resp.json()
     assert body["rebalance_weights"] is not None
     assert len(body["rebalance_weights"]) >= 1
+
+# ---------------------------------------------------------------- 日本モード（JPY） ---
+
+
+def _save_jp_assets(repo: ParquetPriceRepository, asset_ids: list[str]) -> None:
+    """日本モード2資産を JPY 建てで保存する（価格は us 生成を流用）。"""
+    prices = _make_prices_df(["us_equity", "us_bond"])
+    for i, asset_id in enumerate(asset_ids):
+        values = prices.iloc[:, i].to_numpy()
+        repo.save_series(
+            asset_id,
+            pd.DataFrame(
+                {
+                    "date": prices.index,
+                    "asset_id": [asset_id] * len(prices),
+                    "raw_close": values,
+                    "adjusted_close": values,
+                    "distribution": [0.0] * len(prices),
+                    "currency": ["JPY"] * len(prices),
+                    "source": ["test"] * len(prices),
+                    "source_symbol": ["T"] * len(prices),
+                    "price_type": ["adjusted_close"] * len(prices),
+                }
+            ),
+        )
+
+
+def test_backtest_jp_returns_jpy_currency(client: TestClient, tmp_settings: Settings) -> None:
+    """日本モードのバックテストは currency=JPY を返す。"""
+    _save_jp_assets(ParquetPriceRepository(tmp_settings.processed_dir), ["jp_equity", "jp_bond"])
+    resp = client.post(
+        "/api/backtests",
+        json=_backtest_payload(
+            asset_ids=["jp_equity", "jp_bond"],
+            weights={"jp_equity": 0.6, "jp_bond": 0.4},
+        ),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["currency"] == "JPY"

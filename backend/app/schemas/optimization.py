@@ -28,6 +28,21 @@ DEFAULT_MARKET_WEIGHTS: dict[str, float] = {
     "ex_us_bond": 0.3198,
 }
 
+# 日本モード（jp）の BL 既定市場ポートフォリオウェイト（**仮値**・研究用）。
+# 日本株/日本債券/外国株/外国債の配分はユーザーが後で調整する前提の暫定値。
+# UI と docs で「仮」と明記する（docs/design.md）。
+DEFAULT_MARKET_WEIGHTS_JP: dict[str, float] = {
+    "jp_equity": 0.25,
+    "jp_bond": 0.35,
+    "ex_jp_equity": 0.25,
+    "ex_jp_bond": 0.15,
+}
+
+DEFAULT_MARKET_WEIGHTS_BY_SET: dict[str, dict[str, float]] = {
+    "us": DEFAULT_MARKET_WEIGHTS,
+    "jp": DEFAULT_MARKET_WEIGHTS_JP,
+}
+
 
 class StaticAllocationParams(BaseModel):
     """`static_allocation` の入力（手法・推定方法・制約）。
@@ -176,6 +191,8 @@ class OptimizationResult(BaseModel):
     clean_weights: dict[str, float] = Field(default_factory=dict)
     metrics: OptimizationMetrics
     params: StaticAllocationParams
+    # 基準通貨（us モード=USD / jp モード=JPY）。ルート層で選択資産から設定する。
+    base_currency: str = ""
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -183,6 +200,8 @@ __all__ = [
     "BlOmegaMethod",
     "CovarianceMethod",
     "DEFAULT_MARKET_WEIGHTS",
+    "DEFAULT_MARKET_WEIGHTS_BY_SET",
+    "DEFAULT_MARKET_WEIGHTS_JP",
     "ExpectedReturnMethod",
     "OptimizationMethod",
     "OptimizationMetrics",

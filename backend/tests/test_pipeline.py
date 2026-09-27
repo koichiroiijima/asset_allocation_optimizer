@@ -123,3 +123,33 @@ def test_run_isolates_failure(tmp_settings: Settings) -> None:
         index.close()
     assert rows["us_bond"] == "failed"
     assert rows["us_equity"] == "succeeded"
+
+
+def test_run_jp_set_saves_jp_assets(tmp_settings: Settings) -> None:
+    """asset_set=jp で日本モードの4資産の processed を保存する。"""
+    pipeline = PricePipeline(tmp_settings, provider=FakeProvider(), asset_set="jp")
+    try:
+        summary = pipeline.run()
+    finally:
+        pipeline.close()
+
+    ids = {r["asset_id"] for r in summary["results"]}
+    assert ids == {"jp_equity", "jp_bond", "ex_jp_equity", "ex_jp_bond"}
+    for asset_id in ids:
+        assert (tmp_settings.processed_dir / f"{asset_id}.parquet").exists()
+
+
+def test_processed_keeps_adjusted_close_for_total_return(tmp_settings: Settings) -> None:
+    """最適化・バックテストが使う adjusted_close が raw_close と別に保持される。"""
+    pipeline = PricePipeline(tmp_settings, provider=FakeProvider())
+    try:
+        pipeline.run(asset_ids=["us_equity"])
+    finally:
+        pipeline.close()
+
+    processed = pd.read_parquet(tmp_settings.processed_dir / "us_equity.parquet")
+    # fake provider は raw_close=100+day, adjusted_close=101+day を返す。
+    # adjusted_close（分配金補正付き想定）が raw_close と混同されず保存される。
+    assert set(processed["adjusted_close"]) == {103.0, 104.0}
+    assert set(processed["raw_close"]) == {102.0, 103.0}
+    assert (processed["adjusted_close"] != processed["raw_close"]).all()

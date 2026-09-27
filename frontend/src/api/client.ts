@@ -76,7 +76,7 @@ function analysisQuery(spec: AnalysisSpec): string {
 
 export interface ApiClient {
   getHealth: () => Promise<HealthResponse>;
-  getAssets: () => Promise<AssetListResponse>;
+  getAssets: (assetSet?: string) => Promise<AssetListResponse>;
   getSeries: (spec: SeriesSpec) => Promise<SeriesResponse>;
   getAnalysis: (spec: AnalysisSpec) => Promise<AnalysisResponse>;
   optimize: (payload: OptimizationRequest) => Promise<OptimizationResponse>;
@@ -86,7 +86,10 @@ export interface ApiClient {
 export function createApiClient(): ApiClient {
   return {
     getHealth: () => getJson<HealthResponse>('/health'),
-    getAssets: () => getJson<AssetListResponse>('/assets'),
+    getAssets: (assetSet?: string) =>
+      getJson<AssetListResponse>(
+        assetSet ? `/assets?set=${encodeURIComponent(assetSet)}` : '/assets',
+      ),
     getSeries: (spec: SeriesSpec) => getJson<SeriesResponse>(`/data/series?${seriesQuery(spec)}`),
     getAnalysis: (spec: AnalysisSpec) =>
       getJson<AnalysisResponse>(`/data/analysis?${analysisQuery(spec)}`),

@@ -23,6 +23,7 @@ from app.api.route_helpers import load_price_matrix
 from app.backtest.engine import BacktestInputError, run_backtest
 from app.config import Settings
 from app.data.repository import ParquetPriceRepository
+from app.domain.assets import base_currency_for_assets
 from app.optimization.service import (
     OptimizationInputError,
     rebalance_allocation,
@@ -95,7 +96,7 @@ def create_backtest(
         result = run_backtest(
             prices,
             request,
-            currency=settings.instrument_trading_currency,
+            currency=base_currency_for_assets(request.asset_ids),
             weights_by_exec=weights_by_exec or None,
         )
     except BacktestInputError as exc:

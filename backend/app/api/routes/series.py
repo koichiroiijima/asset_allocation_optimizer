@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends
 from app.api.deps import get_settings
 from app.config import Settings
 from app.data.repository import ParquetPriceRepository
+from app.domain.assets import base_currency_for_assets
 from app.domain.returns import (
     cumulative_return,
     resample_prices,
@@ -49,8 +50,8 @@ def get_series(settings: SettingsDep, spec: SeriesSpecDep) -> SeriesResponse:
     """指定された系列仕様に応じた正規化済み系列を返す。"""
     warnings: list[str] = []
     repo = ParquetPriceRepository(settings.processed_dir)
-    # 価格データの通貨を返す（実データの通貨。未取得時は取引通貨設定へフォールバック）。
-    fallback_currency = settings.instrument_trading_currency
+    # 価格データの通貨を返す（実データの通貨。未取得時は資産の基準通貨へフォールバック）。
+    fallback_currency = base_currency_for_assets([spec.asset_id])
     try:
         df = repo.load_series(spec.asset_id, spec.start, spec.end)
     except FileNotFoundError:

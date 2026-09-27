@@ -17,21 +17,30 @@ from fastapi.testclient import TestClient
 @pytest.fixture
 def tmp_settings(tmp_path: Path) -> Settings:
     """一時ディレクトリを指す Settings を返す。"""
-    asset_mapping = Path(__file__).parent.parent / "app" / "config" / "assets.default.json"
+    config_dir = Path(__file__).parent.parent / "app" / "config"
     return Settings(
         app_env="test",
         data_root=tmp_path / "data",
         output_root=tmp_path / "outputs",
         sqlite_path=tmp_path / "data" / "app.db",
-        asset_mapping_file=asset_mapping,
+        asset_mapping_files={
+            "us": config_dir / "assets.default.json",
+            "jp": config_dir / "assets.jp.json",
+        },
         cors_origins=[],
     )
 
 
 @pytest.fixture
 def asset_mapping_file() -> Path:
-    """コミット済みの既定資産マッピングファイルのパス。"""
+    """コミット済みの既定資産マッピングファイル（米国モード）のパス。"""
     return Path(__file__).parent.parent / "app" / "config" / "assets.default.json"
+
+
+@pytest.fixture
+def asset_mapping_file_jp() -> Path:
+    """コミット済みの日本モード資産マッピングファイルのパス。"""
+    return Path(__file__).parent.parent / "app" / "config" / "assets.jp.json"
 
 
 @pytest.fixture

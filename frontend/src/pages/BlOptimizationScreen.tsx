@@ -4,10 +4,12 @@ import { useCompare } from '../compare/CompareContext';
 import { makeResultId, type StoredResult } from '../compare/types';
 import { useAnalysis } from '../hooks/useAnalysis';
 import { useAssets } from '../hooks/useAssets';
+import { useAssetSet } from '../state/AssetSetContext';
 import {
-  BL_DEFAULT_MARKET_WEIGHTS,
+  BL_DEFAULT_MARKET_WEIGHTS_BY_SET,
   type AnalysisSpec,
   type Asset,
+  type AssetSet,
   type BlOmegaMethod,
   type CovarianceMethod,
   type OptimizationMethod,
@@ -29,6 +31,12 @@ const COVARIANCE_OPTIONS: { value: CovarianceMethod; label: string }[] = [
   { value: 'semicovariance', label: 'セミコバリアンス' },
   { value: 'ledoit_wolf', label: 'Ledoit-Wolf 収縮' },
 ];
+
+/** BL 既定市場ポートフォリオの説明（モード別。jp は仮値）。 */
+const BL_MARKET_DEFAULT_HINT: Record<AssetSet, string> = {
+  us: '（VTI 22.9% / AGG 21.4% / VXUS 23.7% / IAGG 32.0%）',
+  jp: '（1306.T 25.0% / 2510.T 35.0% / 1550.T 25.0% / 2511.T 15.0%・仮値）',
+};
 
 /** 期待リターン方式の日本語ラベル（本画面は Black-Litterman 固定）。 */
 const EXPECTED_RETURN_LABELS: Record<'black_litterman', string> = {
@@ -75,17 +83,17 @@ interface FormState {
  * 既定の4資産ウェイトを持つ資産のみを対象に、比率を保ったまま合計100%へ正規化する
  * （既定値を持たない資産には 0% を設定。ユーザーが明示的に埋める）。
  */
-function defaultMarketWeightPct(assetIds: string[]): Record<string, string> {
-  const known = assetIds.filter((a) => BL_DEFAULT_MARKET_WEIGHTS[a] != null);
-  const knownTotal = known.reduce(
-    (acc, a) => acc + (BL_DEFAULT_MARKET_WEIGHTS[a] ?? 0),
-    0,
-  );
+function defaultMarketWeightPct(
+  assetIds: string[],
+  defaults: Record<string, number>,
+): Record<string, string> {
+  const known = assetIds.filter((a) => defaults[a] != null);
+  const knownTotal = known.reduce((acc, a) => acc + (defaults[a] ?? 0), 0);
   const out: Record<string, string> = {};
   if (knownTotal > 0) {
     const scaler = 100 / knownTotal;
     for (const a of known) {
-      out[a] = ((BL_DEFAULT_MARKET_WEIGHTS[a] ?? 0) * scaler).toFixed(2);
+      out[a] = ((defaults[a] ?? 0) * scaler).toFixed(2);
     }
   }
   for (const a of assetIds) {
@@ -301,6 +309,9 @@ export function BlOptimizationScreen() {
 
   const { assets, error: assetsError, loading: assetsLoading, refresh } = useAssets();
   const { addResult } = useCompare();
+  const { assetSet } = useAssetSet();
+  // 現在のモードの BL 既定市場ポートフォリオウェイト（jp は仮値）。
+  const blMarketDefaults = BL_DEFAULT_MARKET_WEIGHTS_BY_SET[assetSet];
 
   // 取得済み資産のみを対象にする（分析画面と同様の絞り込み）。
   const availableAssets = useMemo(
@@ -348,7 +359,7 @@ export function BlOptimizationScreen() {
       return {
         ...prev,
         selectedAssetIds: next,
-        blMarketWeights: defaultMarketWeightPct(next),
+        blMarketWeights: defaultMarketWeightPct(next, blMarketDefaults),
         blViews: Object.fromEntries(next.map((a) => [a, prev.blViews[a] ?? ''])),
         blViewConfidences: Object.fromEntries(
           next.map((a) => [a, prev.blViewConfidences[a] ?? '']),
@@ -366,9 +377,23 @@ export function BlOptimizationScreen() {
       form.selectedAssetIds.length > 0 &&
       Object.keys(form.blMarketWeights).length === 0
     ) {
-      setForm((prev) => ({ ...prev, blMarketWeights: defaultMarketWeightPct(prev.selectedAssetIds) }));
+      setForm((prev) => ({
+        ...prev,
+        blMarketWeights: defaultMarketWeightPct(prev.selectedAssetIds, blMarketDefaults),
+      }));
     }
-  }, [form.expectedReturnMethod, form.selectedAssetIds, form.blMarketWeights]);
+  }, [form.expectedReturnMethod, form.selectedAssetIds, form.blMarketWeights, blMarketDefaults]);
+
+  // モード切替時は、前モードの資産ID・ウェイト・ビューが残らないようフォームを初期化する。
+  useEffect(() => {
+    setForm((prev) => ({
+      ...prev,
+      selectedAssetIds: [],
+      blMarketWeights: {},
+      blViews: {},
+      blViewConfidences: {},
+    }));
+  }, [assetSet]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -577,8 +602,9 @@ export function BlOptimizationScreen() {
                       </span>
                     ))}
                   <span className="hint-text">
-                    投資家が想定する市場ポートフォリオ（時価総額加重）の構成比率。未指定なら既定値
-                    （VTI 22.9% / AGG 21.4% / VXUS 23.7% / IAGG 32.0%）を選択資産に合わせて正規化します。
+                    投資家が想定する市場ポートフォリオの構成比率。未指定なら既定値
+                    {BL_MARKET_DEFAULT_HINT[assetSet]}
+                    を選択資産に合わせて正規化します。
                   </span>
                 </label>
 

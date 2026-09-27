@@ -298,3 +298,60 @@ def test_optimization_black_litterman_market_weights_mismatch_returns_422(
         ),
     )
     assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------- 日本モード（JPY） ---
+
+
+def _save_jp_assets(repo: ParquetPriceRepository, asset_ids: list[str]) -> None:
+    """日本モード2資産を JPY 建てで保存する（価格は us 生成を流用）。"""
+    prices = _make_prices_df(["us_equity", "us_bond"])
+    for i, asset_id in enumerate(asset_ids):
+        values = prices.iloc[:, i].to_numpy()
+        repo.save_series(
+            asset_id,
+            pd.DataFrame(
+                {
+                    "date": prices.index,
+                    "asset_id": [asset_id] * len(prices),
+                    "raw_close": values,
+                    "adjusted_close": values,
+                    "distribution": [0.0] * len(prices),
+                    "currency": ["JPY"] * len(prices),
+                    "source": ["test"] * len(prices),
+                    "source_symbol": ["T"] * len(prices),
+                    "price_type": ["adjusted_close"] * len(prices),
+                }
+            ),
+        )
+
+
+def test_optimization_jp_returns_jpy_base_currency(
+    client: TestClient, tmp_settings: Settings
+) -> None:
+    """日本モードの最適化は base_currency=JPY を返す。"""
+    _save_jp_assets(ParquetPriceRepository(tmp_settings.processed_dir), ["jp_equity", "jp_bond"])
+    resp = client.post(
+        "/api/optimizations",
+        json=_optimize_payload(asset_ids=["jp_equity", "jp_bond"]),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["base_currency"] == "JPY"
+
+
+def test_optimization_black_litterman_jp_default_warns(
+    client: TestClient, tmp_settings: Settings
+) -> None:
+    """日本モードの BL は仮の既定市場ウェイトを使い、警告で明示する。"""
+    _save_jp_assets(ParquetPriceRepository(tmp_settings.processed_dir), ["jp_equity", "jp_bond"])
+    resp = client.post(
+        "/api/optimizations",
+        json=_optimize_payload(
+            asset_ids=["jp_equity", "jp_bond"],
+            expected_return_method="black_litterman",
+        ),
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert sum(body["weights"].values()) == pytest.approx(1.0, abs=1e-6)
+    assert any("仮値" in w for w in body["warnings"])
