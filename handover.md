@@ -29,7 +29,7 @@
 - **最適化**: `backend/app/optimization/service.py` の `static_allocation` ＋ `POST /api/optimizations`（同期・`start`/`end` でルックアヘッド回避）。Black-Litterman は**絶対ビュー**対応（`omega="default"/"idzorek"`・τ・リスク回避度・市場ウェイト設定可）。`omega="default"` では τ は結果に影響しない（PyPortfolioOpt 仕様・テスト済み）。
 - **バックテスト**: `backend/app/backtest/engine.py` ＋ `POST /api/backtests`。次営業日約定でルックアヘッド回避、リバランス頻度 D/W/M/Y、**リバランス時再最適化**（`reoptimize`/`optimization_params`、失敗時は直前ウェイト継続＋警告）。BL も再最適化に使用可。
 - **フロントエンド 6 画面**: データ / 分析 / 最適化 / 最適化（BL）/ バックテスト / 比較・保存（Recharts・`frontend/src/pages/`）。モード切替はヘッダー（基準通貨バッジ付き）で **localStorage に永続化**。未取得資産は選択肢に残して disabled 表示。目標値・確信度入力は常時表示＋disabled 切替。結果見出しに基準通貨、データ画面に通貨列、比較画面にモード列。
-- **開発サーバー**: `make start` / `make stop`（`scripts/start.sh` / `scripts/stop.sh`・バックグラウンド・ログは `logs/`、PID は `.run/`）。`make dev` はフォアグラウンド並列起動。
+- **開発サーバー**: `make start` / `make stop`（`scripts/start.sh` / `scripts/stop.sh`・バックグラウンド・ログは `logs/`、PID は `.run/`）。`make dev` はフォアグラウンド並列起動。`start.sh` は起動前にポート空きを確認し、起動後に `GET /api/health`（backend）と `/`（frontend）の応答を検証（失敗時は起動済みを停止して非ゼロ終了・ログ末尾を表示）。`stop.sh` は SIGTERM 不応答時に最大5秒後に SIGKILL へエスカレートし、呼び出し元シェルを巻き込まないよう祖先 PID を除外する。
 
 ### テスト数（実測）
 

@@ -93,7 +93,7 @@ make dev-backend   # http://localhost:8000  (OpenAPI: /docs)
 make dev-frontend  # http://localhost:5173 (/api を :8000 へプロキシ)
 ```
 
-`make start` は backend と frontend をバックグラウンドで起動し、PID を `.run/`、ログを `logs/` に保存します。停止は `make stop`（`scripts/stop.sh`）で行い、PID ファイルが無い手動起動のプロセスも `pkill` のパターンで停止できます。**ポート番号による停止は他プロジェクトを巻き込むため行いません。** frontend は指定ポート（既定 5173）が使用中だと Vite が自動で別ポートへ移り、`make start` は実際に使用された URL を表示します。
+`make start` は backend と frontend をバックグラウンドで起動し、PID を `.run/`、ログを `logs/` に保存します。**起動前に対象ポートの空きを確認し、起動後は実際に HTTP 応答（backend は `GET /api/health`、frontend は `/`）を検証**します。検証に失敗した場合は起動済みプロセスを停止して非ゼロ終了し、ログの末尾を表示します。既に起動中の場合はその旨を表示して終了します。停止は `make stop`（`scripts/stop.sh`）で行い、PID ファイルが無い手動起動のプロセスもパターン一致で停止できます（`SIGTERM` に応答しない場合は最大5秒待って `SIGKILL` にエスカレート）。**ポート番号による停止は他プロジェクトを巻き込むため行いません。** frontend は指定ポート（既定 5173）が使用中だと Vite が自動で別ポートへ移り、`make start` は実際に使用された URL を表示します。
 
 frontend の API ベース URL は環境変数 `VITE_API_BASE` で変更できます（既定は `/api`、後述の Vite プロキシ経由）。backend 側の設定は `ASSET_ALLOC__*` プレフィックス（`.env.example` 参照）ですが、**frontend 側は Vite の `VITE_` プレフィックス**なので注意してください。
 
