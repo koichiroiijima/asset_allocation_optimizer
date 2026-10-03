@@ -101,6 +101,9 @@ describe('DataScreen', () => {
     render(<DataScreen />);
     await screen.findByText('米国株式');
     expect(screen.getByText('VTI')).toBeInTheDocument();
+    // 資産一覧表に通貨列がある
+    expect(screen.getByRole('columnheader', { name: '通貨' })).toBeInTheDocument();
+    expect(screen.getAllByText('USD').length).toBe(2);
     expect(screen.getByText('取得済み')).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText('未取得')).toBeInTheDocument());
     expect(screen.getByText('米国債券')).toBeInTheDocument();

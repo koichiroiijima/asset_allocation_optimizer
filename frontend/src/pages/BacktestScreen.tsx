@@ -242,7 +242,7 @@ export function BacktestScreen() {
         </p>
       )}
 
-      {availableAssets.length > 0 && (
+      {assets && assets.assets.length > 0 && (
         <>
           <form className="opt-form" onSubmit={handleSubmit}>
             <label>
@@ -263,11 +263,16 @@ export function BacktestScreen() {
                   setForm((prev) => ({ ...prev, selectedAssetIds: next, weights: nextWeights }));
                 }}
               >
-                {availableAssets.map((a) => (
-                  <option key={a.logical_asset} value={a.logical_asset}>
-                    {assetLabel(a.logical_asset, assets?.assets)}
-                  </option>
-                ))}
+                {/* 未取得資産は選択肢から消さず、入力不可（disabled）で表示する */}
+                {assets.assets.map((a) => {
+                  const available = (a.data_status?.available ?? false) === true;
+                  return (
+                    <option key={a.logical_asset} value={a.logical_asset} disabled={!available}>
+                      {assetLabel(a.logical_asset, assets.assets)}
+                      {available ? '' : '（未取得）'}
+                    </option>
+                  );
+                })}
               </select>
             </label>
 

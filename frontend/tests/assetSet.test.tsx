@@ -1,7 +1,12 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AssetSetProvider, useAssetSet } from '../src/state/AssetSetContext';
+import { Header } from '../src/components/Header';
+import {
+  ASSET_SET_STORAGE_KEY,
+  AssetSetProvider,
+  useAssetSet,
+} from '../src/state/AssetSetContext';
 import { useAssets } from '../src/hooks/useAssets';
 
 /** 現在のモードと資産一覧を表示し、切替ボタンを持つテスト用コンポーネント。 */
@@ -41,6 +46,27 @@ function stubAssets() {
   return fetchMock;
 }
 
+/** localStorage に依存しないメモリ実装の Storage。 */
+function makeMemoryStorage(): Storage {
+  const data = new Map<string, string>();
+  return {
+    get length() {
+      return Object.keys(data).length;
+    },
+    clear: () => {
+      data = {};
+    },
+    getItem: (key: string) => data[key] ?? null,
+    key: (index: number) => Object.keys(data)[index] ?? null,
+    removeItem: (key: string) => {
+      delete data[key];
+    },
+    setItem: (key: string, value: string) => {
+      data[key] = String(value);
+    },
+  };
+}
+
 describe('AssetSetContext + useAssets', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -59,16 +85,6 @@ describe('AssetSetContext + useAssets', () => {
     expect(screen.getByTestId('set')).toHaveTextContent('jp');
   });
 
-  it('Provider 未指定なら既定 us で動作する', async () => {
-    const fetchMock = stubAssets();
-    render(<Harness />);
-    await waitFor(() => expect(screen.getByTestId('count')).toHaveTextContent('0'));
-    // 既定モード us を set に付けて取得する
-    expect(fetchMock.mock.calls.map((c) => String(c[0])).some((u) => u.includes('/assets?set=us'))).toBe(
-      true,
-    );
-  });
-
   it('モード切替で useAssets が set=jp を付けて再取得する', async () => {
     const fetchMock = stubAssets();
     const user = userEvent.setup();
@@ -83,5 +99,59 @@ describe('AssetSetContext + useAssets', () => {
       const urls = fetchMock.mock.calls.map((c) => String(c[0]));
       expect(urls.some((u) => u.includes('/assets?set=jp'))).toBe(true);
     });
+  });
+
+  it('Provider 未指定なら既定 us で動作する', async () => {
+    const fetchMock = stubAssets();
+    render(<Harness />);
+    await waitFor(() => expect(screen.getByTestId('count')).toHaveTextContent('0'));
+    // 既定モード us を set に付けて取得する
+    expect(fetchMock.mock.calls.map((c) => String(c[0])).some((u) => u.includes('/assets?set=us'))).toBe(
+      true,
+    );
+  });
+
+  it('モードを切替すると localStorage に保存され、再マウントで復元される', async () => {
+    stubAssets();
+    const storage = makeMemoryStorage();
+    const user = userEvent.setup();
+    const { unmount } = render(
+      <AssetSetProvider storage={storage}>
+        <Harness />
+      </AssetSetProvider>,
+    );
+    expect(screen.getByTestId('set')).toHaveTextContent('us');
+
+    await user.click(screen.getByRole('button', { name: '日本へ' }));
+    expect(screen.getByTestId('set')).toHaveTextContent('jp');
+    // 切替時に localStorage へ保存される
+    expect(storage.getItem(ASSET_SET_STORAGE_KEY)).toBe('jp');
+    unmount();
+
+    // 再マウントで復元される
+    render(
+      <AssetSetProvider storage={storage}>
+        <Harness />
+      </AssetSetProvider>,
+    );
+    expect(screen.getByTestId('set')).toHaveTextContent('jp');
+  });
+
+  it('localStorage に不正な値があっても us にフォールバックする', () => {
+    const storage = makeMemoryStorage();
+    storage.setItem(ASSET_SET_STORAGE_KEY, 'eu');
+    render(
+      <AssetSetProvider storage={storage}>
+        <Harness />
+      </AssetSetProvider>,
+    );
+    expect(screen.getByTestId('set')).toHaveTextContent('us');
+  });
+
+    await user.click(screen.getByRole('button', { name: '日本' }));
+    expect(screen.getByText('JPY')).toBeInTheDocument();
+    expect(screen.getByText(/日本株式・日本債券/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '日本' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '米国' })).toHaveAttribute('aria-pressed', 'false');
   });
 });

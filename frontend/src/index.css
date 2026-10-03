@@ -30,6 +30,80 @@ header.app-header h1 {
   margin: 0;
 }
 
+/* ヘッダー上部: タイトルとモード切替（セグメント型スイッチ） */
+
+.app-header-top {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex: 1 1 auto;
+}
+
+.asset-set-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  align-items: flex-start;
+}
+
+.asset-set-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.asset-set-switch-label {
+  font-size: 0.85rem;
+  color: #5a6270;
+  margin-right: 0.25rem;
+}
+
+.asset-set-switch button {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.3rem 0.9rem;
+  border: 1px solid #c9cfd8;
+  background: #fff;
+  color: #5a6270;
+  cursor: pointer;
+}
+
+.asset-set-switch button:first-of-type {
+  border-radius: 4px 0 0 4px;
+}
+
+.asset-set-switch button:last-of-type {
+  border-radius: 0 4px 4px 0;
+}
+
+.asset-set-switch button + button {
+  border-left: none;
+}
+
+.asset-set-switch button.active {
+  background: #2a6e9b;
+  border-color: #2a6e9b;
+  color: #fff;
+  font-weight: 600;
+}
+
+.asset-set-currency {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #1f2430;
+  background: #eef1f5;
+  border: 1px solid #d8dce3;
+  border-radius: 4px;
+  padding: 0.15rem 0.5rem;
+  margin-left: 0.5rem;
+}
+
+.asset-set-description {
+  font-size: 0.78rem;
+  color: #7a828f;
+  margin: 0;
+}
+
 main {
   padding: 1rem 0;
 }
@@ -136,7 +210,8 @@ th {
 .opt-form {
   margin: 0.75rem 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  /* 画面幅で列数が変わると入力欄が列間を移動するため、固定3列にする（狭幅では入力欄が縮む） */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.75rem 1rem;
   align-items: end;
   max-width: 900px;
@@ -199,6 +274,14 @@ th {
 .result-table td:first-child {
   font-weight: 600;
   white-space: nowrap;
+}
+
+/* 結果見出しに併記する基準通貨（円ベース/ドルベースの明示） */
+.result-currency {
+  font-size: 0.85rem;
+  font-weight: 400;
+  color: #5a6270;
+  margin-left: 0.5rem;
 }
 
 .corr-table {

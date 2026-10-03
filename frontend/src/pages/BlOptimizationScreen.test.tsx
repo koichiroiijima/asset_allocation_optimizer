@@ -88,6 +88,7 @@ const BL_OPTIMIZATION_BODY = {
     asset_returns: { us_equity: 0.1, us_bond: 0.04 },
     asset_volatilities: { us_equity: 0.19, us_bond: 0.05 },
   },
+  base_currency: 'USD',
   params: {
     optimization_method: 'max_sharpe',
     expected_return_method: 'black_litterman',
@@ -200,6 +201,8 @@ describe('BlOptimizationScreen', () => {
     // デフォルト市場ウェイト（51.67% / 48.33% → 比率 0.5167 / 0.4833）が POST body に反映される
     await user.click(screen.getByRole('button', { name: '最適化を実行' }));
     await waitFor(() => expect(screen.getByText('0.3000')).toBeInTheDocument());
+    // 基準通貨が結果見出しに表示される
+    expect(screen.getByText(/基準通貨: USD/)).toBeInTheDocument();
 
     const optCalls = fetchMock.mock.calls.filter(([input]) =>
       String(input).includes('/optimizations'),
@@ -216,17 +219,30 @@ describe('BlOptimizationScreen', () => {
     expect(body.bl_views).toBeUndefined();
   });
 
-  it('ω=idzorek 選択時のみ確信度入力が現れる', async () => {
+  it('確信度入力は常に表示され、ω=idzorek のときのみ入力可になる', async () => {
     stubFetch();
     const user = userEvent.setup();
     renderWithProvider(<BlOptimizationScreen />);
     await selectAssets(user);
 
-    expect(screen.queryByText(/ビューの確信度/)).not.toBeInTheDocument();
+    // ビューを入力すると確信度入力欄が現れる
+    const viewInputs = screen
+      .getByText(/ビュー（年率期待リターン/)
+      .closest('label')!
+      .querySelectorAll('input');
+    await user.type(viewInputs[0], '3');
+
+    // ω=default では表示されるが入力不可（非表示にはしない）
+    const confInput = () =>
+      screen.getByText(/ビューの確信度/).closest('label')!.querySelectorAll('input')[0];
+    expect(confInput()).toBeDisabled();
 
     const omegaSelect = screen.getByRole('combobox', { name: /ω（ビュー不確実性）/ });
     await user.selectOptions(omegaSelect, 'idzorek');
-    expect(screen.getByText(/ビューの確信度/)).toBeInTheDocument();
+    expect(confInput()).toBeEnabled();
+
+    await user.selectOptions(omegaSelect, 'default');
+    expect(confInput()).toBeDisabled();
   });
 
   it('idzorek でビューあり・確信度未入力のまま実行するとクライアント検証エラー', async () => {

@@ -87,6 +87,7 @@ const OPTIMIZATION_BODY = {
     asset_returns: { us_equity: 0.12, us_bond: 0.03 },
     asset_volatilities: { us_equity: 0.19, us_bond: 0.05 },
   },
+  base_currency: 'USD',
   params: {
     optimization_method: 'max_sharpe',
     expected_return_method: 'mean_historical_return',
@@ -157,14 +158,19 @@ describe('OptimizationScreen', () => {
     vi.unstubAllGlobals();
   });
 
-  it('取得済み資産のみが対象資産の選択肢に表示される', async () => {
+  it('未取得資産も選択肢に表示され、入力不可（disabled）になる', async () => {
     stubFetch();
     renderWithProvider(<OptimizationScreen />);
     const assetSelect = await screen.findByRole('listbox', { name: /対象資産/ });
     // 資産セレクト内の option のみを対象にする（手法・期待リターン等の option と混ざらない）
-    const assetOptions = Array.from(assetSelect.querySelectorAll('option')).map((o) => o.textContent);
-    expect(assetOptions.sort()).toEqual(['米国債券（BND）', '米国株式（VTI）']);
-    expect(screen.queryByText('米国を除く株式（VXUS）')).not.toBeInTheDocument();
+    const assetOptions = Array.from(assetSelect.querySelectorAll('option'));
+    const texts = assetOptions.map((o) => o.textContent).sort();
+    expect(texts).toEqual(['米国を除く株式（VXUS）（未取得）', '米国債券（BND）', '米国株式（VTI）']);
+    // 取得済みは選択可、未取得は入力不可
+    const byText = (t: string) => assetOptions.find((o) => o.textContent === t)!;
+    expect(byText('米国株式（VTI）').disabled).toBe(false);
+    expect(byText('米国債券（BND）').disabled).toBe(false);
+    expect(byText('米国を除く株式（VXUS）（未取得）').disabled).toBe(true);
   });
 
   it('対象資産2件を選択して実行すると POST body と結果が正しい', async () => {
@@ -175,6 +181,8 @@ describe('OptimizationScreen', () => {
 
     // 結果表が表示される
     await waitFor(() => expect(screen.getByText('0.4000')).toBeInTheDocument());
+    // 基準通貨が結果見出しに表示される
+    expect(screen.getByText(/基準通貨: USD/)).toBeInTheDocument();
 
     // POST body を検証する
     const optCalls = fetchMock.mock.calls.filter(([input]) =>
@@ -187,21 +195,30 @@ describe('OptimizationScreen', () => {
     expect(body.weight_bounds).toEqual([0, 1]);
   });
 
-  it('efficient_return 選択時のみ target_return が表示される', async () => {
+  it('目標値入力は常に表示され、手法に応じて入力可否が切り替わる', async () => {
     stubFetch();
     const user = userEvent.setup();
     renderWithProvider(<OptimizationScreen />);
     await screen.findByRole('listbox', { name: /対象資産/ });
 
-    expect(screen.queryByText('目標リターン（年率）')).not.toBeInTheDocument();
+    // 既定（max_sharpe）では両方とも表示されるが入力不可
+    const targetReturn = () => screen.getByRole('spinbutton', { name: /目標リターン/ });
+    const targetVol = () => screen.getByRole('spinbutton', { name: /目標ボラティリティ/ });
+    expect(targetReturn()).toBeDisabled();
+    expect(targetVol()).toBeDisabled();
 
     const methodSelect = screen.getByRole('combobox', { name: /手法/ });
     await user.selectOptions(methodSelect, 'efficient_return');
-    expect(screen.getByText('目標リターン（年率）')).toBeInTheDocument();
-    expect(screen.queryByText('目標ボラティリティ（年率）')).not.toBeInTheDocument();
+    expect(targetReturn()).toBeEnabled();
+    expect(targetVol()).toBeDisabled();
+
+    await user.selectOptions(methodSelect, 'efficient_risk');
+    expect(targetReturn()).toBeDisabled();
+    expect(targetVol()).toBeEnabled();
 
     await user.selectOptions(methodSelect, 'max_sharpe');
-    expect(screen.queryByText('目標リターン（年率）')).not.toBeInTheDocument();
+    expect(targetReturn()).toBeDisabled();
+    expect(targetVol()).toBeDisabled();
   });
 
   it('efficient_return に説明文が表示されない（target_return 入力は残る）', async () => {
@@ -242,7 +259,7 @@ describe('OptimizationScreen', () => {
     await screen.findByText(/最適化の実行に失敗しました: データが未取得の資産があるため最適化を実行できません/);
   });
 
-  it('取得済みの資産が無い場合は警告を表示しフォームを出さない', async () => {
+  it('取得済みの資産が無い場合は警告を表示し、選択肢をすべて入力不可にする', async () => {
     const noAssetsBody = {
       assets: ASSETS_BODY.assets.map((a) => ({ ...a, data_status: null })),
     };
@@ -261,6 +278,11 @@ describe('OptimizationScreen', () => {
     );
     renderWithProvider(<OptimizationScreen />);
     await screen.findByText(/取得済みの資産がありません。/);
-    expect(screen.queryByRole('button', { name: '最適化を実行' })).not.toBeInTheDocument();
+    // フォームは描画されるが、選択肢はすべて入力不可（非表示にはしない）
+    const assetOptions = Array.from(
+      screen.getByRole('listbox', { name: /対象資産/ }).querySelectorAll('option'),
+    );
+    expect(assetOptions.length).toBe(3);
+    expect(assetOptions.every((o) => o.disabled)).toBe(true);
   });
 });

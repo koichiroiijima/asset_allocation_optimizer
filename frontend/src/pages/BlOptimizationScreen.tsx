@@ -441,7 +441,7 @@ export function BlOptimizationScreen() {
         </p>
       )}
 
-      {availableAssets.length > 0 && (
+      {assets && assets.assets.length > 0 && (
         <>
           <form className="opt-form" onSubmit={handleSubmit}>
             <label>
@@ -458,11 +458,16 @@ export function BlOptimizationScreen() {
                   )
                 }
               >
-                {availableAssets.map((a) => (
-                  <option key={a.logical_asset} value={a.logical_asset}>
-                    {assetLabel(a.logical_asset, assets?.assets)}
-                  </option>
-                ))}
+                {/* 未取得資産は選択肢から消さず、入力不可（disabled）で表示する */}
+                {assets.assets.map((a) => {
+                  const available = (a.data_status?.available ?? false) === true;
+                  return (
+                    <option key={a.logical_asset} value={a.logical_asset} disabled={!available}>
+                      {assetLabel(a.logical_asset, assets.assets)}
+                      {available ? '' : '（未取得）'}
+                    </option>
+                  );
+                })}
               </select>
             </label>
 
@@ -650,37 +655,37 @@ export function BlOptimizationScreen() {
                   </select>
                 </label>
 
-                {form.blOmegaMethod === 'idzorek' && (
-                  <label>
-                    <span>ビューの確信度（0〜1・ビューのある資産に入力必須）</span>
-                    {form.selectedAssetIds
-                      .filter((a) => form.blViews[a] && form.blViews[a].trim() !== '')
-                      .map((a) => (
-                        <span key={a} className="bl-field">
-                          <span className="hint-text">{assetLabel(a, assets?.assets)}</span>
-                          <input
-                            type="number"
-                            step="0.05"
-                            min={0}
-                            max={1}
-                            placeholder="必須"
-                            value={form.blViewConfidences[a] ?? ''}
-                            onChange={(e) =>
-                              update('blViewConfidences', {
-                                ...form.blViewConfidences,
-                                [a]: e.target.value,
-                              })
-                            }
-                          />
-                          <span className="hint-text">0=ほぼ不確実 / 1=確実</span>
-                        </span>
-                      ))}
-                    <span className="hint-text">
-                      ω=idzorek では、ビューのある資産すべてに 0〜1 の確信度を入力してください
-                      （未入力のままだと実行できません）。
-                    </span>
-                  </label>
-                )}
+                {/* 確信度は常に表示し、ω≠idzorek のときは入力不可にする（非表示にしない） */}
+                <label>
+                  <span>ビューの確信度（0〜1・ビューのある資産に入力必須）</span>
+                  {form.selectedAssetIds
+                    .filter((a) => form.blViews[a] && form.blViews[a].trim() !== '')
+                    .map((a) => (
+                      <span key={a} className="bl-field">
+                        <span className="hint-text">{assetLabel(a, assets?.assets)}</span>
+                        <input
+                          type="number"
+                          step="0.05"
+                          min={0}
+                          max={1}
+                          placeholder="必須"
+                          value={form.blViewConfidences[a] ?? ''}
+                          onChange={(e) =>
+                            update('blViewConfidences', {
+                              ...form.blViewConfidences,
+                              [a]: e.target.value,
+                            })
+                          }
+                          disabled={form.blOmegaMethod !== 'idzorek'}
+                        />
+                        <span className="hint-text">0=ほぼ不確実 / 1=確実</span>
+                      </span>
+                    ))}
+                  <span className="hint-text">
+                    ω=idzorek では、ビューのある資産すべてに 0〜1 の確信度を入力してください
+                    （未入力のままだと実行できません）。
+                  </span>
+                </label>
 
                 <label>
                   <span>τ（ビュー信頼係数）</span>
@@ -727,7 +732,12 @@ export function BlOptimizationScreen() {
 
           {result && (
             <>
-              <h3>最適配分の結果</h3>
+              <h3>
+                最適配分の結果
+                {result.base_currency ? (
+                  <span className="result-currency">（基準通貨: {result.base_currency}）</span>
+                ) : null}
+              </h3>
               <div className="compare-actions">
                 <button
                   type="button"

@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { assetSetOfResult } from './types';
 import type { StoredResult } from './types';
 
 /** このブラウザ内で保持する結果数の上限。超えた分は古いものから破棄する。 */
@@ -25,7 +26,12 @@ export function CompareProvider({ children }: { children: ReactNode }) {
   const [results, setResults] = useState<StoredResult[]>([]);
 
   const addResult = useCallback((result: StoredResult) => {
-    setResults((prev) => [result, ...prev].slice(0, MAX_RESULTS));
+    // モード（資産セット）は結果の基準通貨から導出して保存する（比較表のモード列用）。
+    const stored: StoredResult = {
+      ...result,
+      assetSet: result.assetSet ?? assetSetOfResult(result.result),
+    };
+    setResults((prev) => [stored, ...prev].slice(0, MAX_RESULTS));
   }, []);
 
   const removeResult = useCallback((id: string) => {

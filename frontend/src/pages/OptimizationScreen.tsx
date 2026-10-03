@@ -235,7 +235,7 @@ export function OptimizationScreen() {
         </p>
       )}
 
-      {availableAssets.length > 0 && (
+      {assets && assets.assets.length > 0 && (
         <>
           <form className="opt-form" onSubmit={handleSubmit}>
             <label>
@@ -251,11 +251,16 @@ export function OptimizationScreen() {
                   )
                 }
               >
-                {availableAssets.map((a) => (
-                  <option key={a.logical_asset} value={a.logical_asset}>
-                    {assetLabel(a.logical_asset, assets?.assets)}
-                  </option>
-                ))}
+                {/* 未取得資産は選択肢から消さず、入力不可（disabled）で表示する */}
+                {assets.assets.map((a) => {
+                  const available = (a.data_status?.available ?? false) === true;
+                  return (
+                    <option key={a.logical_asset} value={a.logical_asset} disabled={!available}>
+                      {assetLabel(a.logical_asset, assets.assets)}
+                      {available ? '' : '（未取得）'}
+                    </option>
+                  );
+                })}
               </select>
             </label>
 
@@ -328,31 +333,30 @@ export function OptimizationScreen() {
               <span className="hint-text">年率・小数（例 0.02 = 2%）</span>
             </label>
 
-            {form.method === 'efficient_return' && (
-              <>
-                <label>
-                  <span>目標リターン（年率）</span>
-                  <input
-                    type="number"
-                    step="0.001"
-                    value={form.targetReturn}
-                    onChange={(e) => update('targetReturn', e.target.value)}
-                  />
-                </label>
-              </>
-            )}
+            {/* 目標値は常に表示し、該当手法以外は入力不可にする（非表示にしない） */}
+            <label>
+              <span>目標リターン（年率）</span>
+              <input
+                type="number"
+                step="0.001"
+                value={form.targetReturn}
+                onChange={(e) => update('targetReturn', e.target.value)}
+                disabled={form.method !== 'efficient_return'}
+              />
+              <span className="hint-text">efficient_return のときのみ有効</span>
+            </label>
 
-            {form.method === 'efficient_risk' && (
-              <label>
-                <span>目標ボラティリティ（年率）</span>
-                <input
-                  type="number"
-                  step="0.001"
-                  value={form.targetVolatility}
-                  onChange={(e) => update('targetVolatility', e.target.value)}
-                />
-              </label>
-            )}
+            <label>
+              <span>目標ボラティリティ（年率）</span>
+              <input
+                type="number"
+                step="0.001"
+                value={form.targetVolatility}
+                onChange={(e) => update('targetVolatility', e.target.value)}
+                disabled={form.method !== 'efficient_risk'}
+              />
+              <span className="hint-text">efficient_risk のときのみ有効</span>
+            </label>
 
             <label>
               <span>ウェイト下限</span>
@@ -400,7 +404,12 @@ export function OptimizationScreen() {
 
           {result && (
             <>
-              <h3>最適配分の結果</h3>
+              <h3>
+                最適配分の結果
+                {result.base_currency ? (
+                  <span className="result-currency">（基準通貨: {result.base_currency}）</span>
+                ) : null}
+              </h3>
               <div className="compare-actions">
                 <button
                   type="button"

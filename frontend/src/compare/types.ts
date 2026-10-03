@@ -1,6 +1,7 @@
 /** 比較・保存機能の型定義。実行結果（最適化・バックテスト）を蓄積し、比較・エクスポートする。 */
 
 import type {
+  AssetSet,
   BacktestResponse,
   OptimizationRequest,
   OptimizationResponse,
@@ -14,6 +15,20 @@ export const KIND_LABELS: Record<StoredResultKind, string> = {
   optimization: '最適化',
   backtest: 'バックテスト',
 };
+
+/** 結果の基準通貨からモード（資産セット）を導出する。JPY は日本モード、それ以外は米国モード。 */
+export function assetSetOfResult(
+  result: OptimizationResponse | BacktestResponse,
+): AssetSet {
+  const currency = isOptLike(result) ? result.base_currency : result.currency;
+  return currency === 'JPY' ? 'jp' : 'us';
+}
+
+function isOptLike(
+  result: OptimizationResponse | BacktestResponse,
+): result is OptimizationResponse {
+  return 'clean_weights' in result;
+}
 
 /** 比較・保存画面に蓄積する実行結果 1 件。 */
 export interface StoredResult {
@@ -30,6 +45,8 @@ export interface StoredResult {
   periodEnd?: string;
   /** 実行結果の全内容。 */
   result: OptimizationResponse | BacktestResponse;
+  /** 実行時の資産セット（モード）。JPY 基準は 'jp'、それ以外は 'us'（結果から導出）。 */
+  assetSet?: AssetSet;
   /**
    * 実行リクエスト（最適化の再現用）。最適化結果を保存する際に
    * `OptimizationRequest` を保持し、バックテストの再最適化で再現に使う。

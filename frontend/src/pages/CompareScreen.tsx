@@ -3,6 +3,7 @@ import { exportCsv, exportJson } from '../compare/export';
 import { getColumns, weightAssetIdsFor, type MetricColumn } from '../compare/indicators';
 import { useCompare } from '../compare/CompareContext';
 import { KIND_LABELS, type StoredResult, type StoredResultKind } from '../compare/types';
+import { ASSET_SET_LABELS } from '../state/AssetSetContext';
 
 /** 実行日時（ISO）をローカル表記へ。 */
 function formatExecutedAt(iso: string): string {
@@ -46,7 +47,7 @@ function groupByKind(results: StoredResult[]): Map<StoredResultKind, RowView[]> 
 
 /** CSV 用のヘッダ・セル（種別ごとの列を並べる）。CSV は生値（csvRaw）を使う。 */
 function buildCsvCells(results: StoredResult[]): string[][] {
-  const header = ['ラベル', '種別', '実行日時', '期間'];
+  const header = ['ラベル', '種別', 'モード', '実行日時', '期間'];
   // 列は「全種別の列」を種別順に並べる（重複ラベルも列が分かるよう残す）
   const kinds: StoredResultKind[] = ['optimization', 'backtest'];
   const allColumns: MetricColumn[] = kinds.flatMap((k) =>
@@ -58,7 +59,14 @@ function buildCsvCells(results: StoredResult[]): string[][] {
       const raw = c.csvRaw(r);
       return raw === null || raw === undefined ? '' : String(raw);
     });
-    return [r.label, KIND_LABELS[r.kind], r.executedAt, periodLabel(r), ...values];
+    return [
+      r.label,
+      KIND_LABELS[r.kind],
+      r.assetSet ? ASSET_SET_LABELS[r.assetSet] : '',
+      r.executedAt,
+      periodLabel(r),
+      ...values,
+    ];
   });
   return [header, ...lines];
 }
@@ -131,6 +139,7 @@ export function CompareScreen() {
           <tr>
             <th>ラベル</th>
             <th>種別</th>
+            <th>モード</th>
             <th>実行日時</th>
             <th>期間</th>
             <th>操作</th>
@@ -147,6 +156,7 @@ export function CompareScreen() {
                 />
               </td>
               <td>{KIND_LABELS[r.kind]}</td>
+              <td>{r.assetSet ? ASSET_SET_LABELS[r.assetSet] : '—'}</td>
               <td>{formatExecutedAt(r.executedAt)}</td>
               <td>{periodLabel(r)}</td>
               <td>
@@ -163,7 +173,7 @@ export function CompareScreen() {
       {(['optimization', 'backtest'] as const).map((kind) => {
         const group = groups.get(kind);
         if (!group || group.length === 0) return null;
-        const columns = getColumns(kind);
+        const columns = getColumns(kind, weightAssetIdsFor(kind, results));
         return (
           <div key={kind}>
             <h4>{KIND_LABELS[kind]}の比較</h4>

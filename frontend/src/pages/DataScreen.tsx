@@ -54,6 +54,7 @@ function renderAssetTable(assets: Asset[]) {
           <th>資産</th>
           <th>ティッカー</th>
           <th>資産クラス</th>
+          <th>通貨</th>
           <th>出所</th>
           <th>期間</th>
           <th>欠損</th>
@@ -70,6 +71,7 @@ function renderAssetTable(assets: Asset[]) {
               <td>{a.display_name}</td>
               <td>{a.default_ticker}</td>
               <td>{ASSET_CLASS_LABEL[a.asset_class] ?? a.asset_class}</td>
+              <td>{a.currency}</td>
               <td>{ds?.source ?? '—'}</td>
               <td>
                 {available && ds?.start

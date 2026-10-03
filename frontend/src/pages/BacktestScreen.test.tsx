@@ -234,14 +234,17 @@ describe('BacktestScreen', () => {
     vi.unstubAllGlobals();
   });
 
-  it('取得済み資産のみが対象選択肢に表示される', async () => {
+  it('未取得資産も対象選択肢に表示され、入力不可（disabled）になる', async () => {
     stubFetch();
     renderWithProvider(<BacktestScreen />);
     const listbox = await screen.findByRole('listbox', { name: /対象資産/ });
-    const options = Array.from(listbox.querySelectorAll('option')).map((o) => o.textContent);
-    expect(options).toContain('米国株式（VTI）');
-    expect(options).toContain('米国債券（BND）');
-    expect(options).not.toContain('米国を除く株式（VXUS）');
+    const options = Array.from(listbox.querySelectorAll('option'));
+    const byText = (t: string) => options.find((o) => o.textContent === t)!;
+    expect(byText('米国株式（VTI）').disabled).toBe(false);
+    expect(byText('米国債券（BND）').disabled).toBe(false);
+    // 未取得資産は消さず、disabled で表示する
+    expect(byText('米国を除く株式（VXUS）（未取得）')).toBeTruthy();
+    expect(byText('米国を除く株式（VXUS）（未取得）').disabled).toBe(true);
   });
 
   it('実行すると POST body と結果が正しい', async () => {
@@ -422,7 +425,7 @@ describe('BacktestScreen', () => {
     expect(body.optimization_params).toBeUndefined();
   });
 
-  it('取得済みの資産が無い場合は警告を表示しフォームを出さない', async () => {
+  it('取得済みの資産が無い場合は警告を表示し、選択肢をすべて入力不可にする', async () => {
     const noAssetsBody = { assets: ASSETS_BODY.assets.map((a) => ({ ...a, data_status: null })) };
     vi.stubGlobal(
       'fetch',
@@ -437,6 +440,11 @@ describe('BacktestScreen', () => {
     );
     renderWithProvider(<BacktestScreen />);
     await screen.findByText(/取得済みの資産がありません。/);
-    expect(screen.queryByRole('button', { name: 'バックテストを実行' })).not.toBeInTheDocument();
+    // フォームは描画されるが、選択肢はすべて入力不可（非表示にはしない）
+    const assetOptions = Array.from(
+      screen.getByRole('listbox', { name: /対象資産/ }).querySelectorAll('option'),
+    );
+    expect(assetOptions.length).toBe(ASSETS_BODY.assets.length);
+    expect(assetOptions.every((o) => o.disabled)).toBe(true);
   });
 });
