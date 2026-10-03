@@ -48,13 +48,13 @@ function stubAssets() {
 
 /** localStorage に依存しないメモリ実装の Storage。 */
 function makeMemoryStorage(): Storage {
-  const data = new Map<string, string>();
+  const data: Record<string, string> = {};
   return {
     get length() {
       return Object.keys(data).length;
     },
     clear: () => {
-      data = {};
+      for (const key of Object.keys(data)) delete data[key];
     },
     getItem: (key: string) => data[key] ?? null,
     key: (index: number) => Object.keys(data)[index] ?? null,
@@ -148,10 +148,32 @@ describe('AssetSetContext + useAssets', () => {
     expect(screen.getByTestId('set')).toHaveTextContent('us');
   });
 
+  it('Header のモード切替で基準通貨バッジ・説明文・押下状態が切り替わる', async () => {
+    const storage = makeMemoryStorage();
+    const user = userEvent.setup();
+    render(
+      <AssetSetProvider storage={storage}>
+        <Header active="data" onNavigate={() => {}} screens={[{ key: 'data', label: 'データ' }]} />
+      </AssetSetProvider>,
+    );
+
+    // 既定（米国モード）: USD バッジ・米国の説明文
+    expect(screen.getByLabelText('基準通貨')).toHaveTextContent('USD');
+    expect(screen.getByText(/米国株式・米国債券/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '米国' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: '日本' })).toHaveAttribute('aria-pressed', 'false');
+
     await user.click(screen.getByRole('button', { name: '日本' }));
-    expect(screen.getByText('JPY')).toBeInTheDocument();
+
+    // 日本モード: JPY バッジ・日本の説明文・押下状態の切替
+    expect(screen.getByLabelText('基準通貨')).toHaveTextContent('JPY');
     expect(screen.getByText(/日本株式・日本債券/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '日本' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: '米国' })).toHaveAttribute('aria-pressed', 'false');
+
+    // 米国モードへ戻す
+    await user.click(screen.getByRole('button', { name: '米国' }));
+    expect(screen.getByLabelText('基準通貨')).toHaveTextContent('USD');
+    expect(screen.getByRole('button', { name: '米国' })).toHaveAttribute('aria-pressed', 'true');
   });
 });
