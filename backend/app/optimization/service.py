@@ -273,6 +273,15 @@ def _compute_covariance(
     return estimator.ledoit_wolf()  # type: ignore[no-any-return]
 
 
+def _resolve_weight_bounds(
+    assets: list[str], params: StaticAllocationParams
+) -> dict[str, tuple[float, float]]:
+    """資産名 → ウェイト上下限のマップを返す（共通上限を資産別指定で上書き）。"""
+    if params.asset_weight_bounds:
+        return {a: params.asset_weight_bounds.get(a, params.weight_bounds) for a in assets}
+    return {a: params.weight_bounds for a in assets}
+
+
 def _build_efficient_frontier(
     mu: pd.Series,
     sigma: pd.DataFrame,
@@ -285,13 +294,102 @@ def _build_efficient_frontier(
     表示名（`:asset`）毎に設定する。
     """
     assets = list(mu.index)
-    if params.asset_weight_bounds:
-        bounds: list[tuple[float, float]] = [
-            params.asset_weight_bounds.get(a, params.weight_bounds) for a in assets
-        ]
-    else:
-        bounds = [params.weight_bounds] * len(assets)
+    bounds_map = _resolve_weight_bounds(assets, params)
+    bounds = [bounds_map[a] for a in assets]
     return EfficientFrontier(mu, sigma, weight_bounds=bounds)
+
+
+def _enforce_weight_bounds(
+    weights: dict[str, float],
+    bounds: dict[str, tuple[float, float]],
+    *,
+    warnings: list[str],
+    tolerance: float = 1e-6,
+) -> dict[str, float]:
+    """ウェイトを上下限へ射影して合計1に再正規化する（逸脱時は警告）。
+
+    PyPortfolioOpt の `max_sharpe` は変換空間で問題を解くため、上下限を有効にしても
+    結果が境界を僅かに外れることがある（例: 1.000577 / -0.000255）。制約を満たさない
+    まま返すと UI に 100% 超・負の配分が現れるため、ここで **上下限へクリップ→合計1へ
+    再正規化** し、実施した事実を日本語警告として明示する（数値誤差の補正であり、
+    最適解の意味は変えない）。
+    """
+    clipped = {
+        asset: min(max(value, bounds[asset][0]), bounds[asset][1])
+        for asset, value in weights.items()
+    }
+    violations = {
+        asset: (weights[asset], clipped[asset])
+        for asset in weights
+        if abs(clipped[asset] - weights[asset]) > tolerance
+    }
+    if not violations:
+        return weights
+
+    total = sum(clipped.values())
+    if total <= 0.0:
+        raise OptimizationInputError(
+            "ウェイトを上下限へ射影した結果、合計が 0 以下になりました。"
+            "ウェイト上下限・対象資産の設定を確認してください。"
+        )
+    normalized = {asset: value / total for asset, value in clipped.items()}
+
+    # 再正規化で上限を再び超えた場合に備え、最終クリップ（通常は発生しない）。
+    renormalized_violation = any(
+        not (bounds[asset][0] - tolerance <= value <= bounds[asset][1] + tolerance)
+        for asset, value in normalized.items()
+    )
+    if renormalized_violation:
+        warnings.append(
+            "ウェイトの上下限適用後も制約からの逸脱が残っています。"
+            "ウェイト上下限の設定を見直してください。"
+        )
+
+    details = "、".join(
+        f"{asset}（{before:.6f}→{after:.6f}）" for asset, (before, after) in violations.items()
+    )
+    warnings.append(
+        "ウェイトが上下限を僅かに外れたため [下限, 上限] へ射影し合計1に再正規化しました"
+        f"（数値誤差の補正。該当: {details}）"
+    )
+    return normalized
+
+
+def _clean_weights(
+    weights: dict[str, float], *, cutoff: float = 1e-4, rounding: int = 5
+) -> dict[str, float]:
+    """表示用に丸めたウェイトを返す（`cutoff` 未満は 0、`rounding` 桁で丸め）。
+
+    PyPortfolioOpt の `clean_weights` と同じ規則（`cutoff=1e-4`, `rounding=5`）。
+    """
+    cleaned: dict[str, float] = {}
+    for asset, value in weights.items():
+        cleaned[asset] = 0.0 if abs(value) < cutoff else round(value, rounding)
+    return cleaned
+
+
+def _portfolio_performance(
+    weights: dict[str, float],
+    mu: pd.Series,
+    sigma: pd.DataFrame,
+    risk_free_rate: float,
+) -> tuple[float, float, float]:
+    """最終ウェイトから年率リターン・年率ボラ・Sharpe を再計算する。
+
+    `ef.portfolio_performance` と同じ定義（期待リターン=w·μ、ボラ=√(w'Σw)、
+    Sharpe=(リターン−rf)/ボラ）。上下限補正後のウェイトと指標を一致させるために用いる。
+    """
+    assets = list(mu.index)
+    w = np.asarray([weights[a] for a in assets], dtype="float64")
+    mu_arr = mu.to_numpy(dtype="float64")
+    sigma_arr = sigma.to_numpy(dtype="float64")
+    expected_return = float(w @ mu_arr)
+    variance = float(w @ sigma_arr @ w)
+    volatility = math.sqrt(variance) if variance > 0.0 else 0.0
+    sharpe = (
+        (expected_return - risk_free_rate) / volatility if volatility > 0.0 else float("nan")
+    )
+    return expected_return, volatility, sharpe
 
 
 def _apply_method(ef: EfficientFrontier, params: StaticAllocationParams) -> None:
@@ -402,10 +500,14 @@ def static_allocation(
     ef = _build_efficient_frontier(mu, sigma, params)
     _apply_method(ef, params)
 
-    raw_weights = dict(zip(assets, np.asarray(ef.weights, dtype=float), strict=True))
-    clean = dict(ef.clean_weights())
-    expected_return, volatility, sharpe = ef.portfolio_performance(
-        risk_free_rate=params.risk_free_rate, verbose=False
+    ef_weights = dict(zip(assets, np.asarray(ef.weights, dtype=float), strict=True))
+    # 上下限の僅かな逸脱（max_sharpe の数値誤差）を射影・再正規化して制約を保証する。
+    bounds_map = _resolve_weight_bounds(assets, params)
+    raw_weights = _enforce_weight_bounds(ef_weights, bounds_map, warnings=warnings)
+    clean = _clean_weights(raw_weights)
+    # 上下限補正後のウェイトと指標を一致させるため、最終ウェイトから再計算する。
+    expected_return, volatility, sharpe = _portfolio_performance(
+        raw_weights, mu, sigma, params.risk_free_rate
     )
 
     # 個別資産ごとの年率期待リターン（mu）／年率ボラ（sqrt 対角）を返す。

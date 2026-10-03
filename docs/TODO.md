@@ -48,7 +48,8 @@
 - [x] 4資産の既定ティッカー取得確認（VTI / AGG / VXUS / IAGG、USD）
 - [ ] `price_max_staleness_days`（陳腐化更新の警告・取引停止）— 設定値のみ定義、適用は未実装
 - [ ] `/api/jobs` からの data_fetch 配線（GUI/API からの取得は未接続、CLI のみ）
-- [ ] レート制限対応・取得失敗時の再試行・データ品質警告
+- [ ] レート制限対応・取得失敗時の再試行
+- [x] 価格異常値の検出・除外（`app/data/quality.py::detect_price_anomalies`）— ローリング中央値（窓21・`center=True`）から既定「2倍超 / 0.5倍未満」に乖離する**一時的なスパイク**を検出し、`load_price_matrix` が該当日の行を価格行列から除外＋日本語警告（分析・最適化・バックテスト共通）。恒久的な分割段差は追従して誤検出しない（jp_equity 2015-01-05 で確認）。テスト6件。**しきい値の設定項目化・分割補正そのものは未実装**
 
 ## リターン計算・年率換算
 
@@ -77,6 +78,7 @@
 - [x] 最適化タブ分割（**最適化** / **最適化（BL）**）— ヘッダーナビを6タブ化。**最適化タブ**は BL 機能を削除（`OptimizationScreen.tsx`、期待リターン選択肢から black_litterman を除外）。**最適化（BL）タブ**は BL 専用フォーム（`BlOptimizationScreen.tsx`、期待リターンは black_litterman 固定・共分散は選択可能）。BL 結果も `kind:'optimization'` で保存されバックテストの再最適化元に選択可。テスト `BlOptimizationScreen.test.tsx`（7件）・`App.test.tsx`（タブ切替）追加。
 - [x] `rebalance_allocation`（リバランス最適化）の実装 — `app/optimization/service.py`。各リバランスシグナル日まで `prices.loc[:sig]` にスライスして `static_allocation` を実行（ルックアヘッド回避）。失敗時は直前ウェイト継続＋日本語警告。バックテスト API の `reoptimize` / `optimization_params` から呼び出し
 - [x] 個別資産のリターン・リスク（最適化結果）— `OptimizationMetrics` に `asset_returns` / `asset_volatilities`（最適化に使った `mu`・`sqrt(diag(sigma))` から算出）を追加、最適化画面に資産別統計表を表示
+- [x] ウェイト上下限の保証（2026-10-03 不具合修正）— PyPortfolioOpt `max_sharpe` の数値誤差で上下限を僅かに外れる問題（実測 `1.000577` / `-0.000255`）を `_enforce_weight_bounds` でクリップ→合計1へ再正規化して解消（実施時は日本語警告）。`_portfolio_performance` で最終ウェイトから年率リターン/ボラ/Sharpe を再計算、`clean_weights` は PyPortfolioOpt 同等（`cutoff=1e-4`・5桁丸め）。テスト3件。日本モード max_sharpe＋EMA の 100%超・負値が解消
 - [ ] 互換性表・入力範囲・既定値のスキーマ共用
 - [x] Black-Litterman アロケーションの実装 — `expected_return_method="black_litterman"`（`app/optimization/service.py` の `_compute_black_litterman`）。PyPortfolioOpt 1.6.0 の `BlackLittermanModel` / `market_implied_prior_returns` を利用し、先行情報 Π=δ·Σ·w_mkt+rf と**絶対ビュー**（年率期待リターン（r_f込み）の水準）を合成して事後 μ/Σ を `static_allocation` に渡す。**市場ポートフォリオはユーザーがウェイトで設定可能**（既定: 米国株式22.88% / 米国債券21.40% / 除く株式23.73% / 除く債券31.98%）。`bl_tau`（既定0.05・`omega="default"`では無効）・`bl_omega_method`（default/idzorek）・`bl_risk_aversion`（未指定は市場から逆算）を schema + pydantic validator（τ 範囲・確信度0-1・市場ウェイト合計≈1・ビュー対象が選択資産内）で検証。テスト: ビュー寄与・**τ 独立性**（default_tau では不変）・同値検証（直接 PyPortfolioOpt と一致）・独立な推算一致。フロントは **最適化（BL）タブ**（`BlOptimizationScreen.tsx`）に BL 専用フォーム（市場ウェイト・ビュー・ω/τ/リスク回避度）とデフォルト値表示（ビューは r_f 込みの年率水準。ω=idzorek では確信度未入力の資産を明示して送信前に検証）。backend +12件・frontend +7件のテストを追加（`test_optimization` / `test_optimizations_api` / `test_backtests_api` / `BlOptimizationScreen.test.tsx`）。**相対ビュー（Q/P行列）・`omega="manual"`・時価総額（AUM）入力は未着手（将来拡張）**。
 

@@ -355,3 +355,31 @@ def test_optimization_black_litterman_jp_default_warns(
     body = resp.json()
     assert sum(body["weights"].values()) == pytest.approx(1.0, abs=1e-6)
     assert any("仮値" in w for w in body["warnings"])
+
+def test_optimization_excludes_price_anomaly_with_warning(
+    client: TestClient, tmp_settings: Settings
+) -> None:
+    """一時的な価格異常（中央値比 1/10）が除外され、警告に明示される。
+
+    実データの日本株（2026-03-30/31）と同型のスパイクを混入させ、
+    (1) 異常日が価格行列から除外されること（警告）、(2) ウェイトが上下限内に
+    収まること、(3) 合計が1であることを検証する。
+    """
+    repo = ParquetPriceRepository(tmp_settings.processed_dir)
+    _save_assets(repo, ["us_equity", "us_bond"])
+
+    # us_equity の途中2日を 1/10 に改ざんして保存し直す（一時的なスパイク）。
+    df = repo.load_series("us_equity")
+    spike = df.index[100:102]
+    df.loc[spike, "adjusted_close"] = df.loc[spike, "adjusted_close"] * 0.1
+    df.loc[spike, "raw_close"] = df.loc[spike, "raw_close"] * 0.1
+    repo.save_series("us_equity", df)
+
+    resp = client.post("/api/optimizations", json=_optimize_payload())
+    assert resp.status_code == 200
+    body = resp.json()
+
+    assert any("異常値" in w for w in body["warnings"])
+    assert sum(body["weights"].values()) == pytest.approx(1.0, abs=1e-6)
+    for value in body["weights"].values():
+        assert 0.0 <= value <= 1.0

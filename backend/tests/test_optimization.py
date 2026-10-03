@@ -10,7 +10,11 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-from app.optimization.service import OptimizationInputError, static_allocation
+from app.optimization.service import (
+    OptimizationInputError,
+    _enforce_weight_bounds,
+    static_allocation,
+)
 from app.schemas.optimization import DEFAULT_MARKET_WEIGHTS, StaticAllocationParams
 from pypfopt import EfficientFrontier, black_litterman, expected_returns, risk_models
 
@@ -145,6 +149,45 @@ def test_asset_weight_bounds_are_respected() -> None:
     assert result.weights["us_equity"] <= 0.01 + 1e-6
     assert result.weights["ex_us_equity"] <= 0.01 + 1e-6
     assert sum(result.weights.values()) == pytest.approx(1.0, abs=1e-6)
+
+
+def test_enforce_weight_bounds_projects_into_bounds_and_warns() -> None:
+    """上下限を僅かに外れたウェイトを射影・再正規化し、警告を積む（max_sharpe 誤差対策）。"""
+    warnings: list[str] = []
+    raw = {"a": 1.000577, "b": -0.000255, "c": -0.000134, "d": -0.000188}
+    bounds = {k: (0.0, 1.0) for k in raw}
+    out = _enforce_weight_bounds(raw, bounds, warnings=warnings)
+
+    assert out["a"] == pytest.approx(1.0)
+    assert out["b"] == 0.0
+    assert out["c"] == 0.0
+    assert out["d"] == 0.0
+    assert sum(out.values()) == pytest.approx(1.0)
+    assert any("射影" in w for w in warnings)
+
+
+def test_enforce_weight_bounds_is_noop_when_within_bounds() -> None:
+    """上下限内のウェイトは変更せず、警告も積まない。"""
+    warnings: list[str] = []
+    raw = {"a": 0.6, "b": 0.4}
+    out = _enforce_weight_bounds(raw, {"a": (0.0, 1.0), "b": (0.0, 1.0)}, warnings=warnings)
+    assert out == raw
+    assert warnings == []
+
+
+def test_max_sharpe_never_returns_out_of_bounds_weights() -> None:
+    """1資産が極端に優勢なコーナー解でも上下限(0,1)を外れない（実データ不具合の再現防止）。"""
+    prices = _make_prices()
+    # us_equity を指数関数的に押し上げ、max_sharpe をコーナー解へ誘導する。
+    prices["us_equity"] = prices["us_equity"] * np.linspace(1.0, 8.0, len(prices))
+    params = StaticAllocationParams(
+        optimization_method="max_sharpe", expected_return_method="ema_historical_return"
+    )
+    result = static_allocation(prices, params)
+
+    assert sum(result.weights.values()) == pytest.approx(1.0, abs=1e-9)
+    for value in result.weights.values():
+        assert -1e-9 <= value <= 1.0 + 1e-9
 
 
 def test_insufficient_assets_raises() -> None:

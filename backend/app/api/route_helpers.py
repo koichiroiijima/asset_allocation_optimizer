@@ -15,6 +15,7 @@ from datetime import date
 
 import pandas as pd
 
+from app.data.quality import DEFAULT_ANOMALY_RATIO, detect_price_anomalies
 from app.data.repository import ParquetPriceRepository
 
 WRONG_MISSING_MESSAGE = (
@@ -37,6 +38,11 @@ def load_price_matrix(
       一致しないセルは NaN のまま（補完しない）。
     - 未取得資産（`FileNotFoundError`）は除外し、`warnings`（日本語）に積む。
     - 戻り値は `(matrix, warnings)`。1 資産も残らない場合は空の DataFrame。
+
+    異常値方針: 各資産の価格系列から**ローリング中央値から大きく乖離する一時的な
+    異常値**（`app/data/quality.py`、既定は中央値の2倍超/0.5倍未満）を検出し、当該
+    **日付の行を価格行列から除外**して日本語警告に明示する（値の推測補完はしない）。
+    分析・最適化・バックテストが壊れた観測で巨大なリターンを計算するのを防ぐ。
     """
     frames: dict[str, pd.Series] = {}
     warnings: list[str] = []
@@ -59,12 +65,33 @@ def load_price_matrix(
     if not frames:
         return pd.DataFrame(dtype="float64"), warnings
 
+    # 各資産の一時的な異常値を検出し、該当する日付を後で行列から除外する。
+    anomalies = [
+        anomaly
+        for asset_id, series in frames.items()
+        for anomaly in detect_price_anomalies(series, asset_id=asset_id)
+    ]
+
     matrix = pd.concat(frames.values(), axis=1, join="outer")
     # 列順は asset_ids の順序を維持（観測できた資産のみ）。frames は次を保証しないため
     # 明示的に並べ替える。
     matrix = matrix.loc[:, [asset_id for asset_id in asset_ids if asset_id in frames]]
     matrix = matrix.sort_index()
     matrix.index = pd.DatetimeIndex(matrix.index)
+
+    if anomalies:
+        drop_dates = {anomaly.date for anomaly in anomalies}
+        matrix = matrix.drop(index=[d for d in matrix.index if d in drop_dates])
+        details = "、".join(
+            f"{a.asset_id} {a.date.date().isoformat()}"
+            f"（中央値比 {a.ratio:.2f} 倍・{a.direction}）"
+            for a in anomalies
+        )
+        warnings.append(
+            "価格の異常値（ローリング中央値から "
+            f"{DEFAULT_ANOMALY_RATIO} 倍超の乖離）を検出したため除外しました: "
+            f"{details}。データ提供元の値を確認してください。"
+        )
     return matrix, warnings
 
 
