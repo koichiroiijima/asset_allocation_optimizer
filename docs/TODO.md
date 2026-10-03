@@ -2,7 +2,7 @@
 
 このファイルはアセット配分最適化アプリの実装進捗を追跡する。実装状況の詳細（設計判断・決定履歴）は [`design.md`](design.md)、利用方法は [`README.md`](../README.md)、進め方の指針は [`CLAUDE.md`](../CLAUDE.md) を参照。
 
-最終更新: 2026-08-29
+最終更新: 2026-10-03
 
 ## 凡例
 
@@ -32,6 +32,7 @@
 - [x] Yahoo provider の `calendar` 判定（jp/us）
 - [x] BL の JP 仮既定市場ウェイト（`DEFAULT_MARKET_WEIGHTS_JP`・仮値警告付き）とフロントの set別既定
 - [x] 最小のモード切替 GUI（`AssetSetContext` + Header トグル、`useAssets` の `?set=` 追従、切替時リセット、比較のウェイト列動的化）
+- [x] モード切替の永続化・UI 改善 — モードを localStorage に保存し再マウントで復元（不正値・例外時は既定 `us` にフォールバック、`storage` はテスト注入可）。ヘッダーに基準通貨バッジ（USD/JPY）とモード説明文を表示、セグメント型スイッチのスタイル追加（`AssetSetContext.tsx` / `Header.tsx` / `index.css`）
 - [ ] 実データ取得（`fetch --set jp`）と E2E 確認（ネットワーク必要）
 - [ ] 汎用 FX 換算レイヤ（外貨建て→基準通貨。今回は対象外）
 - [ ] JPモードの資産数を増やす / ユーザー定義資産セット
@@ -94,9 +95,10 @@
 ## 画面（分析以降）
 
 - [x] 分析画面（価格推移・累積リターン・ローリングボラ・相関ヒートマップ・リターン/リスク統計表）— `GET /api/data/analysis`（`app/api/routes/analysis.py` / `app/schemas/analysis.py`）を配線、`app/api/route_helpers.py` の `load_price_matrix` で複数資産を外側 union 整列、未取得資産は除外して日本語警告、`frontend/src/hooks/useAnalysis.ts` + `src/api/client.ts` の `getAnalysis` と連携。リターン/リスク統計表（平均リターン・EMA リターン・年率ボラ・シャープ、`analysis.stats`）を追加
-- [x] 最適化画面（手法・期間・制約の入力と結果表示）— `POST /api/optimizations` を配線。対象資産（取得済みのみ・複数選択）・手法・期待リターン（capm_return はベンチマーク非対応のため除外。**BL も除外し最適化（BL）タブへ分離**）・共分散・期間・リスクフリー金利・ウェイト上下限・年率換算係数を入力、`efficient_return`/`efficient_risk` では目標値を条件表示。結果に個別資産のリターン/リスク表（`metrics.asset_returns` / `asset_volatilities`）を表示。クライアント側検証（資産2件・ウェイト上下限・目標値必須）と結果表（clean_weights・指標・warnings）を実装。テスト `OptimizationScreen.test.tsx`（7件）付き
+- [x] 最適化画面（手法・期間・制約の入力と結果表示）— `POST /api/optimizations` を配線。対象資産（**未取得は disabled で表示・複数選択**）・手法・期待リターン（capm_return はベンチマーク非対応のため除外。**BL も除外し最適化（BL）タブへ分離**）・共分散・期間・リスクフリー金利・ウェイト上下限・年率換算係数を入力、`efficient_return`/`efficient_risk` の目標値は**常時表示で入力可否を切替**（非表示にしない）。結果見出しに基準通貨を表示。結果に個別資産のリターン/リスク表（`metrics.asset_returns` / `asset_volatilities`）を表示。クライアント側検証（資産2件・ウェイト上下限・目標値必須）と結果表（clean_weights・指標・warnings）を実装。テスト `OptimizationScreen.test.tsx` 付き
 - [x] バックテスト画面（固定ウェイト・リバランス頻度・初期資金・コスト入力、累積資産/ドローダウン/配分推移の折れ線・評価指標・年次成績・取引一覧・免責表示）— `POST /api/backtests` を配線。対象資産は最適化と同じ multi-select ドロップダウン。リバランス頻度に年次（Y）を追加。比較一覧の保存済み最適化から**選択するだけで再最適化**（未選択＝固定ウェイト。チェックボックス廃止・選択駆動に変更）。初期資金は小数可（`step="any"`）。再最適化は各シグナル日までで最適化、失敗時は直前ウェイト継続。再最適化時は採用ウェイト表を表示。`BacktestScreen.tsx` + テスト（`BacktestScreen.test.tsx` 9件）
-- [x] 比較・保存画面（複数結果の比較、JSON / CSV エクスポート）— `CompareScreen.tsx`・`compare/CompareContext.tsx`（最適化・バックテスト結果を「比較に追加」でグローバル保持、最大50件・メモリ保持）。種別ごとの指標比較（最良値強調・nullは「—」）、ラベル編集・削除、JSON / CSV エクスポート（Blob ダウンロード）。テスト `CompareScreen.test.tsx`（6件）
+- [x] 比較・保存画面（複数結果の比較、JSON / CSV エクスポート）— `CompareScreen.tsx`・`compare/CompareContext.tsx`（最適化・バックテスト結果を「比較に追加」でグローバル保持、最大50件・メモリ保持）。種別ごとの指標比較（最良値強調・nullは「—」）、**モード列（結果の基準通貨から導出・CSV ヘッダにも含む）**、ラベル編集・削除、JSON / CSV エクスポート（Blob ダウンロード）。テスト `CompareScreen.test.tsx`（6件）
+- [x] UI 細部改善（2026-10-03）— 未取得資産を選択肢から消さず disabled＋「（未取得）」表示（最適化 / BL / バックテスト3画面・全資産未取得でもフォームを描画）、データ画面の資産一覧表に通貨列、比較画面にモード列、`opt-form` を固定3列化（画面幅による入力欄の列間移動を防止）
 
 ## 仕上げ
 
