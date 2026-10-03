@@ -345,6 +345,18 @@ export function BlOptimizationScreen() {
   };
 
   /**
+   * ビューの確信度を更新する。値が入ったら ω を Idzorek へ自動切替する
+   * （ω=default では確信度が使われず、入力が無視されるのを防ぐ）。
+   */
+  const handleConfidenceChange = (assetId: string, value: string) => {
+    setForm((prev) => ({
+      ...prev,
+      blOmegaMethod: value.trim() !== '' ? 'idzorek' : prev.blOmegaMethod,
+      blViewConfidences: { ...prev.blViewConfidences, [assetId]: value },
+    }));
+  };
+
+  /**
  * 対象資産の選択を更新し、BL の市場ポートフォリオ・ビュー・確信度を
  * 選択資産に合わせて初期化する。市場ポートフォリオは既定値で埋める。
  */
@@ -655,9 +667,9 @@ export function BlOptimizationScreen() {
                   </select>
                 </label>
 
-                {/* 確信度は常に表示し、ω≠idzorek のときは入力不可にする（非表示にしない） */}
+                {/* 確信度は常に入力可能。入力すると ω を Idzorek へ切り替えて値を反映する。 */}
                 <label>
-                  <span>ビューの確信度（0〜1・ビューのある資産に入力必須）</span>
+                  <span>ビューの確信度（0〜1・ビューのある資産）</span>
                   {form.selectedAssetIds
                     .filter((a) => form.blViews[a] && form.blViews[a].trim() !== '')
                     .map((a) => (
@@ -668,22 +680,16 @@ export function BlOptimizationScreen() {
                           step="0.05"
                           min={0}
                           max={1}
-                          placeholder="必須"
+                          placeholder="0〜1"
                           value={form.blViewConfidences[a] ?? ''}
-                          onChange={(e) =>
-                            update('blViewConfidences', {
-                              ...form.blViewConfidences,
-                              [a]: e.target.value,
-                            })
-                          }
-                          disabled={form.blOmegaMethod !== 'idzorek'}
+                          onChange={(e) => handleConfidenceChange(a, e.target.value)}
                         />
                         <span className="hint-text">0=ほぼ不確実 / 1=確実</span>
                       </span>
                     ))}
                   <span className="hint-text">
-                    ω=idzorek では、ビューのある資産すべてに 0〜1 の確信度を入力してください
-                    （未入力のままだと実行できません）。
+                    確信度を入力すると ω は自動で Idzorek に切り替わります。ω=default（分散に比例）
+                    では確信度は使用されません。Idzorek ではビューのある資産すべてに 0〜1 の入力が必要です。
                   </span>
                 </label>
 

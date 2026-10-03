@@ -219,7 +219,7 @@ describe('BlOptimizationScreen', () => {
     expect(body.bl_views).toBeUndefined();
   });
 
-  it('確信度入力は常に表示され、ω=idzorek のときのみ入力可になる', async () => {
+  it('確信度入力は常に入力可能で、入力すると ω が Idzorek に自動切替される', async () => {
     stubFetch();
     const user = userEvent.setup();
     renderWithProvider(<BlOptimizationScreen />);
@@ -232,17 +232,21 @@ describe('BlOptimizationScreen', () => {
       .querySelectorAll('input');
     await user.type(viewInputs[0], '3');
 
-    // ω=default では表示されるが入力不可（非表示にはしない）
+    // ω=default でも入力可能（以前は disabled だった）
     const confInput = () =>
       screen.getByText(/ビューの確信度/).closest('label')!.querySelectorAll('input')[0];
-    expect(confInput()).toBeDisabled();
-
     const omegaSelect = screen.getByRole('combobox', { name: /ω（ビュー不確実性）/ });
-    await user.selectOptions(omegaSelect, 'idzorek');
+    expect(omegaSelect).toHaveValue('default');
     expect(confInput()).toBeEnabled();
 
+    // 確信度を入力すると ω が idzorek へ自動切替される
+    await user.type(confInput(), '0.8');
+    expect(omegaSelect).toHaveValue('idzorek');
+    expect(confInput()).toHaveValue(0.8);
+
+    // ω を default へ戻しても入力欄は引き続き編集可能
     await user.selectOptions(omegaSelect, 'default');
-    expect(confInput()).toBeDisabled();
+    expect(confInput()).toBeEnabled();
   });
 
   it('idzorek でビューあり・確信度未入力のまま実行するとクライアント検証エラー', async () => {
