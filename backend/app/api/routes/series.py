@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.deps import get_settings
 from app.config import Settings
+from app.data.quality import latest_split_cutoff
 from app.data.repository import ParquetPriceRepository
 from app.domain.assets import base_currency_for_assets
 from app.domain.returns import (
@@ -78,6 +79,21 @@ def get_series(settings: SettingsDep, spec: SeriesSpecDep) -> SeriesResponse:
     data_currency = str(df["currency"].iloc[0]) if "currency" in df.columns else fallback_currency
     adjusted = df.set_index("date")["adjusted_close"].astype("float64")
     raw = df.set_index("date")["raw_close"].astype("float64")
+
+    # 未調整の株式分割（Yahoo が adjusted_close に反映していない）を検出し、分割前を除外する。
+    split = latest_split_cutoff(raw, asset_id=spec.asset_id)
+    if split is not None and bool((adjusted.index < split.date).any()):
+        dropped = int((adjusted.index < split.date).sum())
+        keep = adjusted.index >= split.date
+        adjusted = adjusted.loc[keep]
+        raw = raw.loc[keep]
+        warnings.append(
+            f"{spec.asset_id} は {split.date.date().isoformat()} に株式分割"
+            f"（{split.factor:.4g}:1）があり、Yahoo の調整済み価格が分割前後で"
+            f"不連続のため、分割前の {dropped} 件を除外しました。"
+        )
+    if adjusted.empty:
+        warnings.append("分割前データの除外により、指定範囲にデータがありません。")
 
     values: pd.Series = _convert_series(spec.series_type, adjusted, raw)
 

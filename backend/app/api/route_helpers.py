@@ -15,7 +15,7 @@ from datetime import date
 
 import pandas as pd
 
-from app.data.quality import DEFAULT_ANOMALY_RATIO, detect_price_anomalies
+from app.data.quality import DEFAULT_ANOMALY_RATIO, detect_price_anomalies, latest_split_cutoff
 from app.data.repository import ParquetPriceRepository
 
 WRONG_MISSING_MESSAGE = (
@@ -56,11 +56,29 @@ def load_price_matrix(
             # 指定期間内のデータが無い資産も算出対象に含めない（警告で明示）。
             warnings.append(f"指定期間にデータがありません（{asset_id}）。")
             continue
-        frames[asset_id] = pd.Series(
-            df.sort_values("date").set_index("date")["adjusted_close"].astype("float64"),
+        ordered = df.sort_values("date")
+        indexed = ordered.set_index("date")
+        adjusted = pd.Series(
+            indexed["adjusted_close"].astype("float64"),
             name=asset_id,
             dtype="float64",
         )
+        # 未調整の株式分割（Yahoo が adjusted_close に反映していない）を検出し、
+        # 分割前のデータをこの資産のみ除外する（外側 join で他資産は NaN のまま残る）。
+        if "raw_close" in indexed.columns:
+            split = latest_split_cutoff(indexed["raw_close"].astype("float64"), asset_id=asset_id)
+            if split is not None and bool((adjusted.index < split.date).any()):
+                dropped = int((adjusted.index < split.date).sum())
+                adjusted = adjusted.loc[adjusted.index >= split.date]
+                warnings.append(
+                    f"{asset_id} は {split.date.date().isoformat()} に株式分割"
+                    f"（{split.factor:.4g}:1）があり、Yahoo の調整済み価格が分割前後で"
+                    f"不連続のため、分割前の {dropped} 件を除外しました。"
+                )
+        if adjusted.empty:
+            warnings.append(f"指定期間にデータがありません（{asset_id}）。")
+            continue
+        frames[asset_id] = adjusted
 
     if not frames:
         return pd.DataFrame(dtype="float64"), warnings
