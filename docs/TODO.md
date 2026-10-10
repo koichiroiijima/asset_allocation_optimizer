@@ -36,10 +36,12 @@
 - [x] 実データ取得（`fetch --set jp`）— processed Parquet 取得済み（2017-12〜。E2E の目視確認は継続課題）
 - [ ] 汎用 FX 換算レイヤ（外貨建て→基準通貨。今回は対象外）
 - [ ] JPモードの資産数を増やす / ユーザー定義資産セット
+- [ ] BL の JP 市場ウェイトを実値へ（現状は仮値 `DEFAULT_MARKET_WEIGHTS_JP`・警告表示あり）
+- [ ] 共通履歴の扱い改善 — 最適化/バックテストの既定（`start` 未指定）は全履歴の外側 union のため、資産ごとの履歴開始差（JP 共通開始=2017-12-06）が混ざる。**資産別の履歴開始と共通開始の差を UI に明示し、既定 `start` を共通開始に合わせる／共通開始より前の期間なら日本語警告する**改善が未実装
 
 ## GUI 刷新（Mantine・サイドバー型・2026-10-10）
 
-- [x] Mantine 8 の導入（`@mantine/core` / `@mantine/hooks` / `@tabler/icons-react`・ライト固定テーマ `src/theme.ts`）— 計画は `docs/gui_refresh_plan.md`
+- [x] Mantine 8 の導入（`@mantine/core` / `@mantine/hooks` / `@tabler/icons-react`・ライト固定テーマ `src/theme.ts`）
 - [x] レイアウトを `AppShell` のサイドバー型へ再構成（`AppShellLayout` / `NavMenu` / `HeaderBar` / `HealthBadge`・6タブは `NavLink component="button"` で button role を維持）
 - [x] 共有 UI 部品化（`ui/PageHeader` / `SectionCard` / `ResultCard` / `StatusBadge` / `ErrorNotice` / `OptimizationResult`＝最適化と BL の結果表を共用化、`charts/theme.ts` で系列パレットを一元化）
 - [x] 対象資産の複数選択を multi-select から **`Checkbox.Group`（チェックボックス式）** へ変更（未取得は disabled＋「（未取得）」維持）
