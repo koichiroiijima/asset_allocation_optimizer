@@ -1,7 +1,8 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DataScreen } from './DataScreen';
+import { render } from '../../tests/test-utils';
 
 /** ResponsiveContainer（recharts）が使う ResizeObserver をモックする。 */
 class ResizeObserverMock {

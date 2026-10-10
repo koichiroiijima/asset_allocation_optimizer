@@ -2,7 +2,7 @@
 
 このファイルはアセット配分最適化アプリの実装進捗を追跡する。実装状況の詳細（設計判断・決定履歴）は [`design.md`](design.md)、利用方法は [`README.md`](../README.md)、進め方の指針は [`CLAUDE.md`](../CLAUDE.md) を参照。
 
-最終更新: 2026-10-03
+最終更新: 2026-10-10
 
 ## 凡例
 
@@ -33,9 +33,20 @@
 - [x] BL の JP 仮既定市場ウェイト（`DEFAULT_MARKET_WEIGHTS_JP`・仮値警告付き）とフロントの set別既定
 - [x] 最小のモード切替 GUI（`AssetSetContext` + Header トグル、`useAssets` の `?set=` 追従、切替時リセット、比較のウェイト列動的化）
 - [x] モード切替の永続化・UI 改善 — モードを localStorage に保存し再マウントで復元（不正値・例外時は既定 `us` にフォールバック、`storage` はテスト注入可）。ヘッダーに基準通貨バッジ（USD/JPY）とモード説明文を表示、セグメント型スイッチのスタイル追加（`AssetSetContext.tsx` / `Header.tsx` / `index.css`）
-- [ ] 実データ取得（`fetch --set jp`）と E2E 確認（ネットワーク必要）
+- [x] 実データ取得（`fetch --set jp`）— processed Parquet 取得済み（2017-12〜。E2E の目視確認は継続課題）
 - [ ] 汎用 FX 換算レイヤ（外貨建て→基準通貨。今回は対象外）
 - [ ] JPモードの資産数を増やす / ユーザー定義資産セット
+
+## GUI 刷新（Mantine・サイドバー型・2026-10-10）
+
+- [x] Mantine 8 の導入（`@mantine/core` / `@mantine/hooks` / `@tabler/icons-react`・ライト固定テーマ `src/theme.ts`）— 計画は `docs/gui_refresh_plan.md`
+- [x] レイアウトを `AppShell` のサイドバー型へ再構成（`AppShellLayout` / `NavMenu` / `HeaderBar` / `HealthBadge`・6タブは `NavLink component="button"` で button role を維持）
+- [x] 共有 UI 部品化（`ui/PageHeader` / `SectionCard` / `ResultCard` / `StatusBadge` / `ErrorNotice` / `OptimizationResult`＝最適化と BL の結果表を共用化、`charts/theme.ts` で系列パレットを一元化）
+- [x] 対象資産の複数選択を multi-select から **`Checkbox.Group`（チェックボックス式）** へ変更（未取得は disabled＋「（未取得）」維持）
+- [x] 単一選択を `NativeSelect`・数値入力を `TextInput type="number"`（`step="any"` 維持）・日付を `TextInput type="date"` に統一
+- [x] `index.css` の最小化（`color-scheme: light dark` の不整合・未定義 `.health-error` の解消）と `.prettierignore`（`dist/`）追加
+- [x] テスト基盤（`tests/setup.ts` に Mantine 用 jsdom モック・`tests/test-utils.tsx` の MantineProvider 付き render）と全テストを新契約へ更新（frontend 57 件 green）
+- [ ] 開発サーバー実機でのブラウザ目視確認（環境に Chrome 無し・テストとビルドで検証済み）
 
 
 ## データ取得（Yahoo Finance）
@@ -76,7 +87,7 @@
 - [x] PyPortfolioOpt 最適化サービスと単体テスト（`static_allocation`）
 - [x] 最適化 API ルート配線（`POST /api/optimizations` 同期エンドポイント＋API テスト、`OptimizationRequest` の `start`/`end` でルックアヘッド回避）
 - [x] 最適化画面・GUI（手法 / 期待リターン / 共分散 / 期間 / リスクフリー金利 / ウェイト上下限の入力と結果表示）— `POST /api/optimizations` を配線、`frontend/src/pages/OptimizationScreen.tsx` + テスト（`OptimizationScreen.test.tsx` 7件）。capm_return はベンチマーク非対応のため選択肢除外、efficient_return/efficient_risk は目標値を条件表示、クライアント側検証でサーバー422に依存しない。
-- [x] 最適化タブ分割（**最適化** / **最適化（BL）**）— ヘッダーナビを6タブ化。**最適化タブ**は BL 機能を削除（`OptimizationScreen.tsx`、期待リターン選択肢から black_litterman を除外）。**最適化（BL）タブ**は BL 専用フォーム（`BlOptimizationScreen.tsx`、期待リターンは black_litterman 固定・共分散は選択可能）。BL 結果も `kind:'optimization'` で保存されバックテストの再最適化元に選択可。テスト `BlOptimizationScreen.test.tsx`（7件）・`App.test.tsx`（タブ切替）追加。
+- [x] 最適化タブ分割（**最適化** / **最適化（BL）**）— ヘッダーナビを6タブ化。**最適化タブ**は BL 機能を削除（`OptimizationScreen.tsx`、期待リターン選択肢から black_litterman を除外）。**最適化（BL）タブ**は BL 専用フォーム（`BlOptimizationScreen.tsx`、期待リターンは black_litterman 固定・共分散は選択可能）。BL 結果も `kind:'optimization'` で保存されバックテストの再最適化元に選択可。テスト `BlOptimizationScreen.test.tsx`（8件）・`App.test.tsx`（タブ切替）追加。
 - [x] `rebalance_allocation`（リバランス最適化）の実装 — `app/optimization/service.py`。各リバランスシグナル日まで `prices.loc[:sig]` にスライスして `static_allocation` を実行（ルックアヘッド回避）。失敗時は直前ウェイト継続＋日本語警告。バックテスト API の `reoptimize` / `optimization_params` から呼び出し
 - [x] 個別資産のリターン・リスク（最適化結果）— `OptimizationMetrics` に `asset_returns` / `asset_volatilities`（最適化に使った `mu`・`sqrt(diag(sigma))` から算出）を追加、最適化画面に資産別統計表を表示
 - [x] ウェイト上下限の保証（2026-10-03 不具合修正）— PyPortfolioOpt `max_sharpe` の数値誤差で上下限を僅かに外れる問題（実測 `1.000577` / `-0.000255`）を `_enforce_weight_bounds` でクリップ→合計1へ再正規化して解消（実施時は日本語警告）。`_portfolio_performance` で最終ウェイトから年率リターン/ボラ/Sharpe を再計算、`clean_weights` は PyPortfolioOpt 同等（`cutoff=1e-4`・5桁丸め）。テスト3件。日本モード max_sharpe＋EMA の 100%超・負値が解消
@@ -94,7 +105,7 @@
 - [x] リバランス時再最適化 — `_simulate` を実行日→ウェイト（`weights_by_exec`）対応に拡張。`BacktestParams` に `reoptimize` / `optimization_params`、`BacktestResult` に `rebalance_weights` を追加。再最適化は `rebalance_allocation`（各シグナル日までスライス）で実行し、失敗時は直前ウェイト継続＋日本語警告。ルックアヘッド検査テスト（再最適化時）追加
 - [ ] 実行結果の再現可能な保存（スナップショット・設定・コードバージョンの永続化。現状は params echo で手動再現のみ。`/api/runs` 配線も未実施）
 
-  API・GUI 配線: `POST /api/backtests`（`app/api/routes/backtests.py`・スキーマ `app/schemas/backtest.py`）・バックテスト画面（`BacktestScreen.tsx`、累積資産/ドローダウン/配分推移折れ線・指標表・年次成績・取引一覧・免責表示・リバランス時再最適化で採用ウェイト）。対象資産は最適化と同じ multi-select ドロップダウン。テスト `test_backtests_api.py`（13件）・`BacktestScreen.test.tsx`（14件）。
+  API・GUI 配線: `POST /api/backtests`（`app/api/routes/backtests.py`・スキーマ `app/schemas/backtest.py`）・バックテスト画面（`BacktestScreen.tsx`、累積資産/ドローダウン/配分推移折れ線・指標表・年次成績・取引一覧・免責表示・リバランス時再最適化で採用ウェイト）。対象資産は最適化と同じ multi-select ドロップダウン。テスト `test_backtests_api.py`（14件）・`BacktestScreen.test.tsx`（9件）。
 
 ## 画面（分析以降）
 

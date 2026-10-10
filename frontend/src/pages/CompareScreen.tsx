@@ -1,9 +1,11 @@
 import { useMemo } from 'react';
+import { Box, Button, Group, ScrollArea, Table, Text, TextInput, Title } from '@mantine/core';
 import { exportCsv, exportJson } from '../compare/export';
 import { getColumns, weightAssetIdsFor, type MetricColumn } from '../compare/indicators';
 import { useCompare } from '../compare/CompareContext';
 import { KIND_LABELS, type StoredResult, type StoredResultKind } from '../compare/types';
 import { ASSET_SET_LABELS } from '../state/AssetSetContext';
+import { PageHeader } from '../components/ui/PageHeader';
 
 /** 実行日時（ISO）をローカル表記へ。 */
 function formatExecutedAt(iso: string): string {
@@ -103,120 +105,141 @@ export function CompareScreen() {
 
   if (results.length === 0) {
     return (
-      <section>
-        <h2>比較・保存</h2>
-        <p className="warning-text">
+      <>
+        <PageHeader
+          title="比較・保存"
+          intro="最適化・バックテストの実行結果を比較し、JSON / CSV エクスポートします。"
+        />
+        <Text size="sm" c="yellow.8">
           比較に追加した結果がありません。最適化・バックテスト画面の「比較に追加」から結果を保存できます。
-        </p>
-        <p className="hint-text">
+        </Text>
+        <Text size="sm" c="dimmed">
           保存された結果はこのブラウザ内にのみ保持され、ページを閉じると消えます。
-        </p>
-      </section>
+        </Text>
+      </>
     );
   }
 
   return (
-    <section>
-      <h2>比較・保存</h2>
-      <p>最適化・バックテストの実行結果を比較し、JSON / CSV エクスポートします。</p>
+    <>
+      <PageHeader
+        title="比較・保存"
+        intro="最適化・バックテストの実行結果を比較し、JSON / CSV エクスポートします。"
+      />
 
-      <div className="compare-toolbar">
-        <button type="button" onClick={() => exportJson(results)}>
+      <Group gap="sm" mb="md" wrap="wrap">
+        <Button variant="default" size="xs" onClick={() => exportJson(results)}>
           JSON エクスポート
-        </button>
-        <button type="button" onClick={() => exportCsv(csvCells)}>
+        </Button>
+        <Button variant="default" size="xs" onClick={() => exportCsv(csvCells)}>
           CSV エクスポート
-        </button>
-        <button type="button" onClick={clearAll}>
+        </Button>
+        <Button variant="default" color="red" size="xs" onClick={clearAll}>
           全削除
-        </button>
-        <span className="hint-text">JSON は実行結果一式、CSV は指標比較表を保存します。</span>
-      </div>
+        </Button>
+        <Text size="sm" c="dimmed">
+          JSON は実行結果一式、CSV は指標比較表を保存します。
+        </Text>
+      </Group>
 
-      <h3>保存一覧</h3>
-      <table className="result-table">
-        <thead>
-          <tr>
-            <th>ラベル</th>
-            <th>種別</th>
-            <th>モード</th>
-            <th>実行日時</th>
-            <th>期間</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Title order={3}>保存一覧</Title>
+      <Table striped highlightOnHover mb="md">
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th>ラベル</Table.Th>
+            <Table.Th>種別</Table.Th>
+            <Table.Th>モード</Table.Th>
+            <Table.Th>実行日時</Table.Th>
+            <Table.Th>期間</Table.Th>
+            <Table.Th>操作</Table.Th>
+          </Table.Tr>
+        </Table.Thead>
+        <Table.Tbody>
           {results.map((r) => (
-            <tr key={r.id}>
-              <td>
-                <input
+            <Table.Tr key={r.id}>
+              <Table.Td>
+                <TextInput
+                  size="xs"
                   value={r.label}
                   onChange={(e) => renameResult(r.id, e.target.value)}
                   aria-label={`ラベル（${r.label}）`}
                 />
-              </td>
-              <td>{KIND_LABELS[r.kind]}</td>
-              <td>{r.assetSet ? ASSET_SET_LABELS[r.assetSet] : '—'}</td>
-              <td>{formatExecutedAt(r.executedAt)}</td>
-              <td>{periodLabel(r)}</td>
-              <td>
-                <button type="button" onClick={() => removeResult(r.id)}>
+              </Table.Td>
+              <Table.Td>{KIND_LABELS[r.kind]}</Table.Td>
+              <Table.Td>{r.assetSet ? ASSET_SET_LABELS[r.assetSet] : '—'}</Table.Td>
+              <Table.Td>{formatExecutedAt(r.executedAt)}</Table.Td>
+              <Table.Td>{periodLabel(r)}</Table.Td>
+              <Table.Td>
+                <Button
+                  size="compact-xs"
+                  variant="light"
+                  color="red"
+                  onClick={() => removeResult(r.id)}
+                >
                   削除
-                </button>
-              </td>
-            </tr>
+                </Button>
+              </Table.Td>
+            </Table.Tr>
           ))}
-        </tbody>
-      </table>
+        </Table.Tbody>
+      </Table>
 
-      <h3>指標比較</h3>
+      <Title order={3}>指標比較</Title>
       {(['optimization', 'backtest'] as const).map((kind) => {
         const group = groups.get(kind);
         if (!group || group.length === 0) return null;
         const columns = getColumns(kind, weightAssetIdsFor(kind, results));
         return (
-          <div key={kind}>
-            <h4>{KIND_LABELS[kind]}の比較</h4>
-            <div className="compare-scroll">
-              <table className="result-table">
-                <thead>
-                  <tr>
-                    <th className="row-header">結果</th>
+          <Box key={kind} mb="md">
+            <Title order={4}>{KIND_LABELS[kind]}の比較</Title>
+            <ScrollArea>
+              <Table striped highlightOnHover style={{ minWidth: '56rem' }}>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>結果</Table.Th>
                     {columns.map((c) => (
-                      <th key={c.key} title={c.label}>
+                      <Table.Th key={c.key} title={c.label}>
                         {c.label}
-                      </th>
+                      </Table.Th>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
                   {group.map(({ result, values }) => (
-                    <tr key={result.id}>
-                      <td className="row-header">{result.label}</td>
+                    <Table.Tr key={result.id}>
+                      <Table.Td fw={600}>{result.label}</Table.Td>
                       {values.map((value, colIndex) => {
-                        const isBest = isBestCell(columns[colIndex], value, group.map((r) => r.values[colIndex]));
+                        const isBest = isBestCell(
+                          columns[colIndex],
+                          value,
+                          group.map((r) => r.values[colIndex]),
+                        );
                         return (
-                          <td key={columns[colIndex].key} className={isBest ? 'better-cell' : undefined}>
+                          <Table.Td
+                            key={columns[colIndex].key}
+                            bg={isBest ? 'green.0' : undefined}
+                            fw={isBest ? 600 : undefined}
+                          >
                             {value ?? '—'}
-                          </td>
+                          </Table.Td>
                         );
                       })}
-                    </tr>
+                    </Table.Tr>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                </Table.Tbody>
+              </Table>
+            </ScrollArea>
+          </Box>
         );
       })}
 
-      <p className="hint-text">
+      <Text size="sm" c="dimmed">
         過去の実績・最適化結果であり、将来の成果を保証するものではありません。過学習や期間依存性に
         注意してください。
-      </p>
-      <p className="hint-text">
+      </Text>
+      <Text size="sm" c="dimmed">
         保存された結果はこのブラウザ内にのみ保持され、ページを閉じると消えます。
-      </p>
-    </section>
+      </Text>
+    </>
   );
 }

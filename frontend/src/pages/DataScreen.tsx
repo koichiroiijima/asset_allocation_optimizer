@@ -8,10 +8,16 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { Box, Group, NativeSelect, Table, Text } from '@mantine/core';
 import type { Asset } from '../api';
 import { useAssets } from '../hooks/useAssets';
 import { useSeries } from '../hooks/useSeries';
 import type { Frequency, SeriesSpec, SeriesType } from '../api/types';
+import { PageHeader } from '../components/ui/PageHeader';
+import { SectionCard } from '../components/ui/SectionCard';
+import { StatusBadge } from '../components/ui/StatusBadge';
+import { ErrorNotice } from '../components/ui/ErrorNotice';
+import { CHART_MARGIN, seriesColor } from '../charts/theme';
 
 /** 系列種別の選択肢（adjusted_close 必須 ＋ return / cumulative）。 */
 const SERIES_TYPE_OPTIONS: { value: SeriesType; label: string }[] = [
@@ -46,55 +52,6 @@ function formatRetrieved(asset: Asset): string {
   return d.toLocaleString('ja-JP');
 }
 
-function renderAssetTable(assets: Asset[]) {
-  return (
-    <table>
-      <thead>
-        <tr>
-          <th>資産</th>
-          <th>ティッカー</th>
-          <th>資産クラス</th>
-          <th>通貨</th>
-          <th>出所</th>
-          <th>期間</th>
-          <th>欠損</th>
-          <th>取得日時</th>
-          <th>状態</th>
-        </tr>
-      </thead>
-      <tbody>
-        {assets.map((a) => {
-          const ds = a.data_status;
-          const available = ds?.available ?? false;
-          return (
-            <tr key={a.logical_asset}>
-              <td>{a.display_name}</td>
-              <td>{a.default_ticker}</td>
-              <td>{ASSET_CLASS_LABEL[a.asset_class] ?? a.asset_class}</td>
-              <td>{a.currency}</td>
-              <td>{ds?.source ?? '—'}</td>
-              <td>
-                {available && ds?.start
-                  ? `${formatDate(ds.start)} ～ ${formatDate(ds.end ?? '')}`
-                  : '—'}
-              </td>
-              <td>{available ? `${ds?.missing ?? 0} 行` : '—'}</td>
-              <td>{available ? formatRetrieved(a) : '—'}</td>
-              <td>
-                {available ? (
-                  <span className="status-ok">取得済み</span>
-                ) : (
-                  <span className="status-warn">未取得</span>
-                )}
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
-  );
-}
-
 /** データ画面（候補・データソース・期間・欠損・取得日時・系列グラフ）。 */
 export function DataScreen() {
   const { assets, error: assetsError, loading: assetsLoading, refresh } = useAssets();
@@ -114,102 +71,153 @@ export function DataScreen() {
   const selectedAsset = assets?.assets.find((a) => a.logical_asset === assetId);
 
   return (
-    <section>
-      <h2>データ</h2>
-      <p>4資産の候補・データソース・期間・欠損・取得日時・価格種別を確認します。</p>
+    <>
+      <PageHeader
+        title="データ"
+        intro="4資産の候補・データソース・期間・欠損・取得日時・価格種別を確認します。"
+      />
 
-      {assetsLoading && <p>読み込み中…</p>}
+      {assetsLoading && <Text>読み込み中…</Text>}
       {assetsError && (
-        <div className="error-box">
-          <p>資産一覧の取得に失敗しました: {assetsError}</p>
-          <button type="button" onClick={() => void refresh()}>
-            再試行
-          </button>
-        </div>
+        <ErrorNotice
+          message={`資産一覧の取得に失敗しました: ${assetsError}`}
+          onRetry={() => void refresh()}
+        />
       )}
 
       {assets && (
         <>
-          {renderAssetTable(assets.assets)}
+          <SectionCard title="資産一覧">
+            <Box style={{ overflowX: 'auto' }}>
+              <Table>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>資産</Table.Th>
+                    <Table.Th>ティッカー</Table.Th>
+                    <Table.Th>資産クラス</Table.Th>
+                    <Table.Th>通貨</Table.Th>
+                    <Table.Th>出所</Table.Th>
+                    <Table.Th>期間</Table.Th>
+                    <Table.Th>欠損</Table.Th>
+                    <Table.Th>取得日時</Table.Th>
+                    <Table.Th>状態</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {assets.assets.map((a) => {
+                    const ds = a.data_status;
+                    const available = ds?.available ?? false;
+                    return (
+                      <Table.Tr key={a.logical_asset}>
+                        <Table.Td>{a.display_name}</Table.Td>
+                        <Table.Td>{a.default_ticker}</Table.Td>
+                        <Table.Td>{ASSET_CLASS_LABEL[a.asset_class] ?? a.asset_class}</Table.Td>
+                        <Table.Td>{a.currency}</Table.Td>
+                        <Table.Td>{ds?.source ?? '—'}</Table.Td>
+                        <Table.Td>
+                          {available && ds?.start
+                            ? `${formatDate(ds.start)} ～ ${formatDate(ds.end ?? '')}`
+                            : '—'}
+                        </Table.Td>
+                        <Table.Td>{available ? `${ds?.missing ?? 0} 行` : '—'}</Table.Td>
+                        <Table.Td>{available ? formatRetrieved(a) : '—'}</Table.Td>
+                        <Table.Td>
+                          <StatusBadge available={available} />
+                        </Table.Td>
+                      </Table.Tr>
+                    );
+                  })}
+                </Table.Tbody>
+              </Table>
+            </Box>
+          </SectionCard>
 
-          <h3>系列グラフ</h3>
-          <div className="controls">
-            <label>
-              資産
-              <select value={assetId} onChange={(e) => setAssetId(e.target.value)}>
-                <option value="">選択してください</option>
-                {assets.assets.map((a) => (
-                  <option key={a.logical_asset} value={a.logical_asset}>
-                    {a.display_name}（{a.default_ticker}）
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              系列種別
-              <select
+          <SectionCard title="系列グラフ">
+            <Group gap="md" align="flex-end" mb="sm" wrap="wrap">
+              <NativeSelect
+                label="資産"
+                w={280}
+                value={assetId}
+                onChange={(e) => setAssetId(e.target.value)}
+                data={[
+                  { value: '', label: '選択してください' },
+                  ...assets.assets.map((a) => ({
+                    value: a.logical_asset,
+                    label: `${a.display_name}（${a.default_ticker}）`,
+                  })),
+                ]}
+              />
+              <NativeSelect
+                label="系列種別"
+                w={280}
                 value={seriesType}
                 onChange={(e) => setSeriesType(e.target.value as SeriesType)}
-              >
-                {SERIES_TYPE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              頻度
-              <select value={frequency} onChange={(e) => setFrequency(e.target.value as Frequency)}>
-                {FREQUENCY_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
+                data={SERIES_TYPE_OPTIONS}
+              />
+              <NativeSelect
+                label="頻度"
+                w={160}
+                value={frequency}
+                onChange={(e) => setFrequency(e.target.value as Frequency)}
+                data={FREQUENCY_OPTIONS}
+              />
+            </Group>
 
-          {selectedAsset && (
-            <>
-              <p className="series-meta">
-                {selectedAsset.display_name} / {seriesType} / {frequency}
-              </p>
-              {seriesLoading && <p>系列を読み込み中…</p>}
-              {seriesError && <p className="error-text">系列の取得に失敗しました: {seriesError}</p>}
-              {series && (
-                <>
-                  {(series.warnings ?? []).map((w, i) => (
-                    <p key={i} className="warning-text">
-                      {w}
-                    </p>
-                  ))}
-                  {series.points.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={320}>
-                      <LineChart
-                        data={series.points.map((p) => ({
-                          date: formatDate(p.date),
-                          value: p.value,
-                        }))}
-                        margin={{ top: 8, right: 16, bottom: 8, left: 8 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="date" />
-                        <YAxis domain={['auto', 'auto']} />
-                        <Tooltip />
-                        <Line type="monotone" dataKey="value" name="値" dot={false} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <p className="warning-text">表示できる系列データがありません。</p>
-                  )}
-                  <p className="hint-text">通貨: {series.currency}</p>
-                </>
-              )}
-            </>
-          )}
+            {selectedAsset && (
+              <>
+                <Text size="sm" c="dimmed">
+                  {selectedAsset.display_name} / {seriesType} / {frequency}
+                </Text>
+                {seriesLoading && <Text>系列を読み込み中…</Text>}
+                {seriesError && (
+                  <Text size="sm" c="red">
+                    系列の取得に失敗しました: {seriesError}
+                  </Text>
+                )}
+                {series && (
+                  <>
+                    {(series.warnings ?? []).map((w, i) => (
+                      <Text key={i} size="sm" c="yellow.8">
+                        {w}
+                      </Text>
+                    ))}
+                    {series.points.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={320}>
+                        <LineChart
+                          data={series.points.map((p) => ({
+                            date: formatDate(p.date),
+                            value: p.value,
+                          }))}
+                          margin={CHART_MARGIN}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="date" />
+                          <YAxis domain={['auto', 'auto']} />
+                          <Tooltip />
+                          <Line
+                            type="monotone"
+                            dataKey="value"
+                            name="値"
+                            stroke={seriesColor(0)}
+                            dot={false}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <Text size="sm" c="yellow.8">
+                        表示できる系列データがありません。
+                      </Text>
+                    )}
+                    <Text size="sm" c="dimmed">
+                      通貨: {series.currency}
+                    </Text>
+                  </>
+                )}
+              </>
+            )}
+          </SectionCard>
         </>
       )}
-    </section>
+    </>
   );
 }

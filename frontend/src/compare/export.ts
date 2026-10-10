@@ -46,9 +46,7 @@ function csvCell(value: string): string {
  * rows は「全行のセルが揃った二次元配列」を想定する。
  */
 function toCsv(cells: string[][]): string {
-  return cells
-    .map((row) => row.map((c) => csvCell(c)).join(','))
-    .join('\r\n');
+  return cells.map((row) => row.map((c) => csvCell(c)).join(',')).join('\r\n');
 }
 
 /**

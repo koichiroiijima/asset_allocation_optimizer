@@ -1,7 +1,8 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
+import { render } from '../tests/test-utils';
 
 function mockHealthOk() {
   vi.stubGlobal(
@@ -31,7 +32,7 @@ describe('App', () => {
     await waitFor(() => expect(health).toHaveTextContent('API: 正常'));
   });
 
-  it('ナビゲーションで画面を切り替えられる', async () => {
+  it('サイドバーのナビゲーションで画面を切り替えられる', async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: '最適化' }));
@@ -50,10 +51,10 @@ describe('App', () => {
       const url = String(input);
       if (url.includes('/health')) {
         return Promise.resolve(
-          new Response(
-            JSON.stringify({ status: 'ok', app: 'a', version: '1', app_env: 'test' }),
-            { status: 200, headers: { 'Content-Type': 'application/json' } },
-          ),
+          new Response(JSON.stringify({ status: 'ok', app: 'a', version: '1', app_env: 'test' }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
         );
       }
       return Promise.resolve(
@@ -67,10 +68,10 @@ describe('App', () => {
 
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByRole('button', { name: '日本' }));
-    // トグルが選択状態になる（aria-pressed）
-    expect(screen.getByRole('button', { name: '日本' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: '米国' })).toHaveAttribute('aria-pressed', 'false');
+    // モード切替はセグメント型スイッチ（radio inputs）で行う
+    await user.click(screen.getByRole('radio', { name: '日本' }));
+    expect(screen.getByRole('radio', { name: '日本' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: '米国' })).not.toBeChecked();
     await waitFor(() => {
       const urls = fetchMock.mock.calls.map((c) => String(c[0]));
       expect(urls.some((u) => u.includes('/assets?set=jp'))).toBe(true);

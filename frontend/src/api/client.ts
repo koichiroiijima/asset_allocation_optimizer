@@ -95,8 +95,7 @@ export function createApiClient(): ApiClient {
       getJson<AnalysisResponse>(`/data/analysis?${analysisQuery(spec)}`),
     optimize: (payload: OptimizationRequest) =>
       postJson<OptimizationResponse>('/optimizations', payload),
-    runBacktest: (payload: BacktestRequest) =>
-      postJson<BacktestResponse>('/backtests', payload),
+    runBacktest: (payload: BacktestRequest) => postJson<BacktestResponse>('/backtests', payload),
   };
 }
 

@@ -9,10 +9,7 @@ import {
 import type { StoredResult } from '../src/compare/types';
 
 /** 最小限の最適化結果を組み立てる。 */
-function optimization(
-  id: string,
-  cleanWeights: Record<string, number>,
-): StoredResult {
+function optimization(id: string, cleanWeights: Record<string, number>): StoredResult {
   const result = {
     method: 'max_sharpe',
     weights: cleanWeights,
@@ -78,12 +75,23 @@ describe('compare/indicators', () => {
       optimization('o1', { jp_equity: 0.6, jp_bond: 0.4 }),
       optimization('o2', { us_equity: 0.5, jp_equity: 0.5 }),
     ];
-    expect(weightAssetIdsFor('optimization', results)).toEqual(['jp_equity', 'jp_bond', 'us_equity']);
+    expect(weightAssetIdsFor('optimization', results)).toEqual([
+      'jp_equity',
+      'jp_bond',
+      'us_equity',
+    ]);
   });
 
   it('weightAssetIdsFor(backtest) は asset_ids の和集合を初出順で返す', () => {
-    const results = [backtest('b1', ['jp_equity', 'jp_bond']), backtest('b2', ['jp_bond', 'ex_jp_equity'])];
-    expect(weightAssetIdsFor('backtest', results)).toEqual(['jp_equity', 'jp_bond', 'ex_jp_equity']);
+    const results = [
+      backtest('b1', ['jp_equity', 'jp_bond']),
+      backtest('b2', ['jp_bond', 'ex_jp_equity']),
+    ];
+    expect(weightAssetIdsFor('backtest', results)).toEqual([
+      'jp_equity',
+      'jp_bond',
+      'ex_jp_equity',
+    ]);
   });
 
   it('weightAssetIdsFor は他種別の結果を無視する', () => {

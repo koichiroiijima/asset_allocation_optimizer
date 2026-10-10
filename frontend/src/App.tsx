@@ -1,6 +1,5 @@
 import React from 'react';
-import { Header } from './components/Header';
-import { HealthCheck } from './components/HealthCheck';
+import { AppShellLayout } from './components/layout/AppShellLayout';
 import { CompareProvider } from './compare/CompareContext';
 import { AssetSetProvider } from './state/AssetSetContext';
 import { DataScreen } from './pages/DataScreen';
@@ -11,12 +10,7 @@ import { BacktestScreen } from './pages/BacktestScreen';
 import { CompareScreen } from './pages/CompareScreen';
 
 export type ScreenKey =
-  | 'data'
-  | 'analysis'
-  | 'optimization'
-  | 'optimization_bl'
-  | 'backtest'
-  | 'compare';
+  'data' | 'analysis' | 'optimization' | 'optimization_bl' | 'backtest' | 'compare';
 
 const SCREENS: { key: ScreenKey; label: string; Component: () => React.JSX.Element }[] = [
   { key: 'data', label: 'データ', Component: DataScreen },
@@ -34,13 +28,9 @@ export function App() {
   return (
     <AssetSetProvider>
       <CompareProvider>
-        <div className="app-shell">
-          <Header active={active} onNavigate={setActive} screens={SCREENS} />
-          <main>
-            <HealthCheck />
-            <activeScreen.Component />
-          </main>
-        </div>
+        <AppShellLayout active={active} onNavigate={setActive} screens={SCREENS}>
+          <activeScreen.Component />
+        </AppShellLayout>
       </CompareProvider>
     </AssetSetProvider>
   );

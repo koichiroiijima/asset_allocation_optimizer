@@ -1,10 +1,6 @@
 /** 比較・保存画面で使う指標の定義と型ガード。 */
 
-import type {
-  BacktestMetrics,
-  BacktestResponse,
-  OptimizationResponse,
-} from '../api/types';
+import type { BacktestMetrics, BacktestResponse, OptimizationResponse } from '../api/types';
 import type { StoredResult, StoredResultKind } from './types';
 
 /** 種別を判別する型ガード。 */
@@ -76,7 +72,9 @@ function optimizationColumns(assetIds: readonly string[] = ALL_ASSET_IDS): Metri
       label: '期待リターン（年率）',
       isHigherBetter: true,
       extract: (r) =>
-        isOptimizationResult(r.result) ? percent(r.result.metrics.expected_annual_return) : undefined,
+        isOptimizationResult(r.result)
+          ? percent(r.result.metrics.expected_annual_return)
+          : undefined,
       csvRaw: (r) =>
         isOptimizationResult(r.result) ? r.result.metrics.expected_annual_return : undefined,
     },
@@ -100,21 +98,19 @@ function optimizationColumns(assetIds: readonly string[] = ALL_ASSET_IDS): Metri
       csvRaw: (r) => (isOptimizationResult(r.result) ? r.result.metrics.sharpe_ratio : undefined),
     },
     // 各資産のウェイトを列化する（資産IDは結果から収集した和集合）
-    ...assetIds.map(
-      (assetId): MetricColumn => ({
-        key: `weight_${assetId}`,
-        kind: 'optimization',
-        label: `ウェイト（${assetId}）`,
-        isHigherBetter: false,
-        extract: (r) => {
-          if (!isOptimizationResult(r.result)) return undefined;
-          const value = r.result.clean_weights[assetId];
-          return value === undefined ? undefined : percent(value);
-        },
-        csvRaw: (r) =>
-          isOptimizationResult(r.result) ? r.result.clean_weights[assetId] ?? null : undefined,
-      }),
-    ),
+    ...assetIds.map((assetId): MetricColumn => ({
+      key: `weight_${assetId}`,
+      kind: 'optimization',
+      label: `ウェイト（${assetId}）`,
+      isHigherBetter: false,
+      extract: (r) => {
+        if (!isOptimizationResult(r.result)) return undefined;
+        const value = r.result.clean_weights[assetId];
+        return value === undefined ? undefined : percent(value);
+      },
+      csvRaw: (r) =>
+        isOptimizationResult(r.result) ? (r.result.clean_weights[assetId] ?? null) : undefined,
+    })),
   ];
 }
 
@@ -139,7 +135,7 @@ function backtestColumns(): MetricColumn[] {
     },
     csvRaw: (r) => {
       const m = metricsOf(r);
-      return m ? (m[key] as number | null) ?? null : undefined;
+      return m ? ((m[key] as number | null) ?? null) : undefined;
     },
   });
 
@@ -161,10 +157,7 @@ function backtestColumns(): MetricColumn[] {
  * 結果集合に含まれるウェイト列用の資産ID（順序は初出順の和集合）。
  * us / jp 両モードが混在しても、各結果に存在する資産だけを列にする。
  */
-export function weightAssetIdsFor(
-  kind: StoredResultKind,
-  results: StoredResult[],
-): string[] {
+export function weightAssetIdsFor(kind: StoredResultKind, results: StoredResult[]): string[] {
   const ids = new Set<string>();
   for (const r of results) {
     if (r.kind !== kind) continue;

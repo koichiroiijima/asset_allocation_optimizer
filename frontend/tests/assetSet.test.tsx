@@ -1,13 +1,10 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { Header } from '../src/components/Header';
-import {
-  ASSET_SET_STORAGE_KEY,
-  AssetSetProvider,
-  useAssetSet,
-} from '../src/state/AssetSetContext';
+import { HeaderBar } from '../src/components/HeaderBar';
+import { ASSET_SET_STORAGE_KEY, AssetSetProvider, useAssetSet } from '../src/state/AssetSetContext';
 import { useAssets } from '../src/hooks/useAssets';
+import { render } from './test-utils';
 
 /** 現在のモードと資産一覧を表示し、切替ボタンを持つテスト用コンポーネント。 */
 function Harness() {
@@ -106,9 +103,9 @@ describe('AssetSetContext + useAssets', () => {
     render(<Harness />);
     await waitFor(() => expect(screen.getByTestId('count')).toHaveTextContent('0'));
     // 既定モード us を set に付けて取得する
-    expect(fetchMock.mock.calls.map((c) => String(c[0])).some((u) => u.includes('/assets?set=us'))).toBe(
-      true,
-    );
+    expect(
+      fetchMock.mock.calls.map((c) => String(c[0])).some((u) => u.includes('/assets?set=us')),
+    ).toBe(true);
   });
 
   it('モードを切替すると localStorage に保存され、再マウントで復元される', async () => {
@@ -148,32 +145,32 @@ describe('AssetSetContext + useAssets', () => {
     expect(screen.getByTestId('set')).toHaveTextContent('us');
   });
 
-  it('Header のモード切替で基準通貨バッジ・説明文・押下状態が切り替わる', async () => {
+  it('HeaderBar のモード切替で基準通貨バッジ・説明文・選択状態が切り替わる', async () => {
     const storage = makeMemoryStorage();
     const user = userEvent.setup();
     render(
       <AssetSetProvider storage={storage}>
-        <Header active="data" onNavigate={() => {}} screens={[{ key: 'data', label: 'データ' }]} />
+        <HeaderBar burgerOpened={false} onBurgerToggle={() => {}} />
       </AssetSetProvider>,
     );
 
     // 既定（米国モード）: USD バッジ・米国の説明文
     expect(screen.getByLabelText('基準通貨')).toHaveTextContent('USD');
     expect(screen.getByText(/米国株式・米国債券/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '米国' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: '日本' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('radio', { name: '米国' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: '日本' })).not.toBeChecked();
 
-    await user.click(screen.getByRole('button', { name: '日本' }));
+    await user.click(screen.getByRole('radio', { name: '日本' }));
 
-    // 日本モード: JPY バッジ・日本の説明文・押下状態の切替
+    // 日本モード: JPY バッジ・日本の説明文・選択状態の切替
     expect(screen.getByLabelText('基準通貨')).toHaveTextContent('JPY');
     expect(screen.getByText(/日本株式・日本債券/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '日本' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: '米国' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('radio', { name: '日本' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: '米国' })).not.toBeChecked();
 
     // 米国モードへ戻す
-    await user.click(screen.getByRole('button', { name: '米国' }));
+    await user.click(screen.getByRole('radio', { name: '米国' }));
     expect(screen.getByLabelText('基準通貨')).toHaveTextContent('USD');
-    expect(screen.getByRole('button', { name: '米国' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('radio', { name: '米国' })).toBeChecked();
   });
 });

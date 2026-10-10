@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
@@ -6,6 +6,7 @@ import type { OptimizationResponse } from '../api/types';
 import { CompareProvider, useCompare } from '../compare/CompareContext';
 import { type StoredResult } from '../compare/types';
 import { BacktestScreen } from './BacktestScreen';
+import { render } from '../../tests/test-utils';
 
 /** テスト用の最適化結果（再最適化元の選択肢として保存する）。 */
 const OPTIMIZATION_RESULT: OptimizationResponse = {
@@ -43,9 +44,12 @@ function Seed({ initial }: { initial: StoredResult[] }) {
 /** CompareProvider で包んで描画する。追加の Provider ラッパーを指定できる。 */
 function renderWithProvider(
   ui: React.ReactNode,
-  wrapper?: (children: React.ReactNode) => React.ReactNode,
+  wrapper?: (props: { children: React.ReactNode }) => React.ReactNode,
 ) {
-  return render(wrapper ? wrapper(ui) : <CompareProvider>{ui}</CompareProvider>);
+  const Wrap = wrapper;
+  return render((Wrap ? <Wrap>{ui}</Wrap> : ui) as React.ReactElement, {
+    wrapper: ({ children }) => <CompareProvider>{children}</CompareProvider>,
+  });
 }
 
 const ASSETS_BODY = {
@@ -147,9 +151,7 @@ const BACKTEST_BODY = {
     { date: '2024-01-03', value: -0.1 },
   ],
   yearly: [{ year: 2024, period_return: 0.3 }],
-  allocation: [
-    { date: '2024-01-02', weights: { us_equity: 0.6, us_bond: 0.4 } },
-  ],
+  allocation: [{ date: '2024-01-02', weights: { us_equity: 0.6, us_bond: 0.4 } }],
   trades: [
     {
       date: '2024-01-02',
@@ -195,10 +197,11 @@ function stubFetch(backtestStub?: { body: unknown; status: number }) {
   return fetchMock;
 }
 
-/** 取得済み2資産を選択し、ウェイトを 0.6/0.4 に設定して実行する。 */
+/** 取得済み2資産を選択し、ウェイトを 0.6/0.4 に設定して実行する（資産選択はチェックボックス式）。 */
 async function selectTwoAssetsAndSubmit(user: ReturnType<typeof userEvent.setup>) {
-  const listbox = await screen.findByRole('listbox', { name: /対象資産/ });
-  await user.selectOptions(listbox, ['us_equity', 'us_bond']);
+  await screen.findByRole('checkbox', { name: '米国株式（VTI）' });
+  await user.click(screen.getByRole('checkbox', { name: '米国株式（VTI）' }));
+  await user.click(screen.getByRole('checkbox', { name: '米国債券（BND）' }));
 
   // ウェイト入力（米国株式 0.6、米国債券 0.4）
   const equityWeight = screen.getByLabelText(/米国株式.*ウェイト/);
@@ -237,14 +240,13 @@ describe('BacktestScreen', () => {
   it('未取得資産も対象選択肢に表示され、入力不可（disabled）になる', async () => {
     stubFetch();
     renderWithProvider(<BacktestScreen />);
-    const listbox = await screen.findByRole('listbox', { name: /対象資産/ });
-    const options = Array.from(listbox.querySelectorAll('option'));
-    const byText = (t: string) => options.find((o) => o.textContent === t)!;
-    expect(byText('米国株式（VTI）').disabled).toBe(false);
-    expect(byText('米国債券（BND）').disabled).toBe(false);
+    const equity = await screen.findByRole('checkbox', { name: '米国株式（VTI）' });
+    expect(equity).toBeEnabled();
+    expect(screen.getByRole('checkbox', { name: '米国債券（BND）' })).toBeEnabled();
     // 未取得資産は消さず、disabled で表示する
-    expect(byText('米国を除く株式（VXUS）（未取得）')).toBeTruthy();
-    expect(byText('米国を除く株式（VXUS）（未取得）').disabled).toBe(true);
+    expect(
+      screen.getByRole('checkbox', { name: '米国を除く株式（VXUS）（未取得）' }),
+    ).toBeDisabled();
   });
 
   it('実行すると POST body と結果が正しい', async () => {
@@ -274,7 +276,7 @@ describe('BacktestScreen', () => {
 
     // 入力欄が step="any"（ブラウザの刻み検証で既定値・小数が弾かれない）
     renderWithProvider(<BacktestScreen />);
-    await screen.findByRole('listbox', { name: /対象資産/ });
+    await screen.findByRole('checkbox', { name: '米国株式（VTI）' });
     const capitalInput = screen.getByLabelText(/初期資金/) as HTMLInputElement;
     expect(capitalInput.getAttribute('step')).toBe('any');
 
@@ -293,11 +295,9 @@ describe('BacktestScreen', () => {
     const fetchMock = stubFetch();
     const user = userEvent.setup();
     renderWithProvider(<BacktestScreen />);
-    await screen.findByRole('listbox', { name: /対象資産/ });
-    await user.selectOptions(screen.getByRole('listbox', { name: /対象資産/ }), [
-      'us_equity',
-      'us_bond',
-    ]);
+    await screen.findByRole('checkbox', { name: '米国株式（VTI）' });
+    await user.click(screen.getByRole('checkbox', { name: '米国株式（VTI）' }));
+    await user.click(screen.getByRole('checkbox', { name: '米国債券（BND）' }));
     const equityWeight = screen.getByLabelText(/米国株式.*ウェイト/);
     await user.clear(equityWeight);
     await user.type(equityWeight, '0.2');
@@ -309,13 +309,18 @@ describe('BacktestScreen', () => {
 
     await screen.findByText(/ウェイトの合計が 1 になっていません/);
     await waitFor(() => {
-      const btCalls = fetchMock.mock.calls.filter(([input]) => String(input).includes('/backtests'));
+      const btCalls = fetchMock.mock.calls.filter(([input]) =>
+        String(input).includes('/backtests'),
+      );
       expect(btCalls.length).toBe(0);
     });
   });
 
   it('バックエンドが400（日本語 detail）を返すとエラー表示', async () => {
-    stubFetch({ body: { detail: 'データが未取得の資産があるためバックテストを実行できません: ex_us_equity' }, status: 400 });
+    stubFetch({
+      body: { detail: 'データが未取得の資産があるためバックテストを実行できません: ex_us_equity' },
+      status: 400,
+    });
     const user = userEvent.setup();
     renderWithProvider(<BacktestScreen />);
     await selectTwoAssetsAndSubmit(user);
@@ -361,15 +366,12 @@ describe('BacktestScreen', () => {
         weight_bounds: [0, 1],
       },
     };
-    renderWithProvider(
-      <BacktestScreen />,
-      (providerChildren) => (
-        <CompareProvider>
-          <Seed initial={[saved]} />
-          {providerChildren}
-        </CompareProvider>
-      ),
-    );
+    renderWithProvider(<BacktestScreen />, ({ children }) => (
+      <CompareProvider>
+        <Seed initial={[saved]} />
+        {children}
+      </CompareProvider>
+    ));
 
     await selectTwoAssetsAndSubmit(user);
 
@@ -405,15 +407,12 @@ describe('BacktestScreen', () => {
         weight_bounds: [0, 1],
       },
     };
-    renderWithProvider(
-      <BacktestScreen />,
-      (providerChildren) => (
-        <CompareProvider>
-          <Seed initial={[saved]} />
-          {providerChildren}
-        </CompareProvider>
-      ),
-    );
+    renderWithProvider(<BacktestScreen />, ({ children }) => (
+      <CompareProvider>
+        <Seed initial={[saved]} />
+        {children}
+      </CompareProvider>
+    ));
     const user = userEvent.setup();
     await selectTwoAssetsAndSubmit(user);
 
@@ -433,7 +432,9 @@ describe('BacktestScreen', () => {
         const url = String(input);
         if (url.includes('/assets')) return Promise.resolve(jsonResponse(noAssetsBody));
         if (url.includes('/health')) {
-          return Promise.resolve(jsonResponse({ status: 'ok', app: 'a', version: '1', app_env: 'test' }));
+          return Promise.resolve(
+            jsonResponse({ status: 'ok', app: 'a', version: '1', app_env: 'test' }),
+          );
         }
         return Promise.resolve(jsonResponse({ detail: 'not found' }, 404));
       }),
@@ -441,10 +442,8 @@ describe('BacktestScreen', () => {
     renderWithProvider(<BacktestScreen />);
     await screen.findByText(/取得済みの資産がありません。/);
     // フォームは描画されるが、選択肢はすべて入力不可（非表示にはしない）
-    const assetOptions = Array.from(
-      screen.getByRole('listbox', { name: /対象資産/ }).querySelectorAll('option'),
-    );
-    expect(assetOptions.length).toBe(ASSETS_BODY.assets.length);
-    expect(assetOptions.every((o) => o.disabled)).toBe(true);
+    const checkboxes = screen.getAllByRole('checkbox');
+    expect(checkboxes.length).toBe(ASSETS_BODY.assets.length);
+    expect(checkboxes.every((c) => (c as HTMLInputElement).disabled)).toBe(true);
   });
 });

@@ -1,4 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
+import {
+  Button,
+  Checkbox,
+  Group,
+  NativeSelect,
+  SimpleGrid,
+  Stack,
+  Text,
+  TextInput,
+} from '@mantine/core';
 import { api } from '../api';
 import { useCompare } from '../compare/CompareContext';
 import { makeResultId, type StoredResult } from '../compare/types';
@@ -12,6 +22,9 @@ import type {
   OptimizationRequest,
   OptimizationResponse,
 } from '../api/types';
+import { PageHeader } from '../components/ui/PageHeader';
+import { OptimizationResult } from '../components/ui/OptimizationResult';
+import { ErrorNotice } from '../components/ui/ErrorNotice';
 
 /** 最適化手法の選択肢。 */
 const METHOD_OPTIONS: { value: OptimizationMethod; label: string }[] = [
@@ -34,27 +47,9 @@ const COVARIANCE_OPTIONS: { value: CovarianceMethod; label: string }[] = [
   { value: 'ledoit_wolf', label: 'Ledoit-Wolf 収縮' },
 ];
 
-/** 期待リターン方式の日本語ラベル。 */
-const EXPECTED_RETURN_LABELS: Record<ExpectedReturnMethod, string> = {
-  mean_historical_return: '平均リターン',
-  capm_return: 'CAPM リターン',
-  ema_historical_return: 'EMA リターン',
-  // 本画面では選択不能だが、サーバー応答の params 型（ExpectedReturnMethod）を
-  // Record で満たすため定義。BL 最適化は専用の「最適化（BL）」タブで行う。
-  black_litterman: 'Black-Litterman',
-};
-
-/** 最適化手法の日本語ラベル。 */
-const METHOD_LABELS: Record<OptimizationMethod, string> = {
-  max_sharpe: '最大シャープレシオ',
-  min_volatility: '最小ボラティリティ',
-  efficient_risk: '目標ボラティリティ（efficient_risk）',
-  efficient_return: '目標リターン（efficient_return）',
-};
-
 /**
  * フォームの入力状態。数値系はキャレット位置・空欄入力を許容するため文字列で保持し、
- * 送信時（`_buildRequest`）に `Number()` へ変換する。
+ * 送信時（`buildRequest`）に `Number()` へ変換する。
  */
 interface FormState {
   selectedAssetIds: string[];
@@ -215,317 +210,180 @@ export function OptimizationScreen() {
   };
 
   return (
-    <section>
-      <h2>最適化</h2>
-      <p>PyPortfolioOpt の手法・期間・制約を入力し、ウェイトとリスク指標を表示します。</p>
+    <>
+      <PageHeader
+        title="最適化"
+        intro="PyPortfolioOpt の手法・期間・制約を入力し、ウェイトとリスク指標を表示します。"
+      />
 
-      {assetsLoading && <p>資産一覧を読み込み中…</p>}
+      {assetsLoading && <Text>資産一覧を読み込み中…</Text>}
       {assetsError && (
-        <div className="error-box">
-          <p>資産一覧の取得に失敗しました: {assetsError}</p>
-          <button type="button" onClick={() => void refresh()}>
-            再試行
-          </button>
-        </div>
+        <ErrorNotice
+          message={`資産一覧の取得に失敗しました: ${assetsError}`}
+          onRetry={() => void refresh()}
+        />
       )}
 
       {!assetsLoading && !assetsError && availableAssets.length === 0 && (
-        <p className="warning-text">
+        <Text size="sm" c="yellow.8">
           取得済みの資産がありません。先にデータ取得 CLI を実行してください。
-        </p>
+        </Text>
       )}
 
       {assets && assets.assets.length > 0 && (
         <>
-          <form className="opt-form" onSubmit={handleSubmit}>
-            <label>
-              <span>対象資産（Ctrl+クリックで複数選択）</span>
-              <select
-                multiple
-                size={4}
+          <form onSubmit={handleSubmit}>
+            <Stack gap="md" maw={980}>
+              <Checkbox.Group
+                label="対象資産（複数選択可）"
                 value={form.selectedAssetIds}
-                onChange={(e) =>
-                  update(
-                    'selectedAssetIds',
-                    Array.from(e.target.selectedOptions).filter((o) => o.selected).map((o) => o.value),
-                  )
-                }
+                onChange={(value) => update('selectedAssetIds', [...value])}
               >
-                {/* 未取得資産は選択肢から消さず、入力不可（disabled）で表示する */}
-                {assets.assets.map((a) => {
-                  const available = (a.data_status?.available ?? false) === true;
-                  return (
-                    <option key={a.logical_asset} value={a.logical_asset} disabled={!available}>
-                      {assetLabel(a.logical_asset, assets.assets)}
-                      {available ? '' : '（未取得）'}
-                    </option>
-                  );
-                })}
-              </select>
-            </label>
+                <Group mt="xs" gap="md" wrap="wrap">
+                  {/* 未取得資産は選択肢から消さず、入力不可（disabled）で表示する */}
+                  {assets.assets.map((a) => {
+                    const available = (a.data_status?.available ?? false) === true;
+                    return (
+                      <Checkbox
+                        key={a.logical_asset}
+                        value={a.logical_asset}
+                        label={`${assetLabel(a.logical_asset, assets.assets)}${available ? '' : '（未取得）'}`}
+                        disabled={!available}
+                      />
+                    );
+                  })}
+                </Group>
+              </Checkbox.Group>
 
-            <label>
-              <span>手法</span>
-              <select
-                value={form.method}
-                onChange={(e) => update('method', e.target.value as OptimizationMethod)}
-              >
-                {METHOD_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+              <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md" verticalSpacing="md">
+                <NativeSelect
+                  label="手法"
+                  value={form.method}
+                  onChange={(e) => update('method', e.target.value as OptimizationMethod)}
+                  data={METHOD_OPTIONS}
+                />
+                <NativeSelect
+                  label="期待リターン"
+                  value={form.expectedReturnMethod}
+                  onChange={(e) =>
+                    update('expectedReturnMethod', e.target.value as ExpectedReturnMethod)
+                  }
+                  data={EXPECTED_RETURN_OPTIONS}
+                />
+                <NativeSelect
+                  label="共分散"
+                  value={form.covarianceMethod}
+                  onChange={(e) => update('covarianceMethod', e.target.value as CovarianceMethod)}
+                  data={COVARIANCE_OPTIONS}
+                />
+                <TextInput
+                  type="date"
+                  label="開始日（任意）"
+                  value={form.start}
+                  onChange={(e) => update('start', e.target.value)}
+                />
+                <TextInput
+                  type="date"
+                  label="終了日（任意）"
+                  value={form.end}
+                  onChange={(e) => update('end', e.target.value)}
+                />
+                <TextInput
+                  type="number"
+                  step="0.001"
+                  label="リスクフリー金利"
+                  description="年率・小数（例 0.02 = 2%）"
+                  value={form.riskFreeRate}
+                  onChange={(e) => update('riskFreeRate', e.target.value)}
+                />
+                <TextInput
+                  type="number"
+                  step="0.001"
+                  label="目標リターン（年率）"
+                  description="efficient_return のときのみ有効"
+                  disabled={form.method !== 'efficient_return'}
+                  value={form.targetReturn}
+                  onChange={(e) => update('targetReturn', e.target.value)}
+                />
+                <TextInput
+                  type="number"
+                  step="0.001"
+                  label="目標ボラティリティ（年率）"
+                  description="efficient_risk のときのみ有効"
+                  disabled={form.method !== 'efficient_risk'}
+                  value={form.targetVolatility}
+                  onChange={(e) => update('targetVolatility', e.target.value)}
+                />
+                <TextInput
+                  type="number"
+                  step="0.05"
+                  label="ウェイト下限"
+                  value={form.weightLower}
+                  onChange={(e) => update('weightLower', e.target.value)}
+                />
+                <TextInput
+                  type="number"
+                  step="0.05"
+                  label="ウェイト上限"
+                  value={form.weightUpper}
+                  onChange={(e) => update('weightUpper', e.target.value)}
+                />
+                <TextInput
+                  type="number"
+                  step="1"
+                  label="年率換算係数"
+                  value={form.annualizationFactor}
+                  onChange={(e) => update('annualizationFactor', e.target.value)}
+                />
+              </SimpleGrid>
 
-            <label>
-              <span>期待リターン</span>
-              <select
-                value={form.expectedReturnMethod}
-                onChange={(e) =>
-                  update('expectedReturnMethod', e.target.value as ExpectedReturnMethod)
-                }
-              >
-                {EXPECTED_RETURN_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label>
-              <span>共分散</span>
-              <select
-                value={form.covarianceMethod}
-                onChange={(e) => update('covarianceMethod', e.target.value as CovarianceMethod)}
-              >
-                {COVARIANCE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label>
-              <span>開始日（任意）</span>
-              <input
-                type="date"
-                value={form.start}
-                onChange={(e) => update('start', e.target.value)}
-              />
-            </label>
-
-            <label>
-              <span>終了日（任意）</span>
-              <input type="date" value={form.end} onChange={(e) => update('end', e.target.value)} />
-            </label>
-
-            <label>
-              <span>リスクフリー金利</span>
-              <input
-                type="number"
-                step="0.001"
-                value={form.riskFreeRate}
-                onChange={(e) => update('riskFreeRate', e.target.value)}
-              />
-              <span className="hint-text">年率・小数（例 0.02 = 2%）</span>
-            </label>
-
-            {/* 目標値は常に表示し、該当手法以外は入力不可にする（非表示にしない） */}
-            <label>
-              <span>目標リターン（年率）</span>
-              <input
-                type="number"
-                step="0.001"
-                value={form.targetReturn}
-                onChange={(e) => update('targetReturn', e.target.value)}
-                disabled={form.method !== 'efficient_return'}
-              />
-              <span className="hint-text">efficient_return のときのみ有効</span>
-            </label>
-
-            <label>
-              <span>目標ボラティリティ（年率）</span>
-              <input
-                type="number"
-                step="0.001"
-                value={form.targetVolatility}
-                onChange={(e) => update('targetVolatility', e.target.value)}
-                disabled={form.method !== 'efficient_risk'}
-              />
-              <span className="hint-text">efficient_risk のときのみ有効</span>
-            </label>
-
-            <label>
-              <span>ウェイト下限</span>
-              <input
-                type="number"
-                step="0.05"
-                value={form.weightLower}
-                onChange={(e) => update('weightLower', e.target.value)}
-              />
-            </label>
-
-            <label>
-              <span>ウェイト上限</span>
-              <input
-                type="number"
-                step="0.05"
-                value={form.weightUpper}
-                onChange={(e) => update('weightUpper', e.target.value)}
-              />
-            </label>
-
-            <label>
-              <span>年率換算係数</span>
-              <input
-                type="number"
-                step="1"
-                value={form.annualizationFactor}
-                onChange={(e) => update('annualizationFactor', e.target.value)}
-              />
-            </label>
-
-            <div className="opt-actions">
-              <button type="submit" disabled={running}>
-                {running ? '実行中…' : '最適化を実行'}
-              </button>
-              {formError && <span className="error-text">{formError}</span>}
-            </div>
+              <Group gap="sm">
+                <Button type="submit" disabled={running}>
+                  {running ? '実行中…' : '最適化を実行'}
+                </Button>
+                {formError && (
+                  <Text size="sm" c="red">
+                    {formError}
+                  </Text>
+                )}
+              </Group>
+            </Stack>
           </form>
 
-          {submitError && <p className="error-text">最適化の実行に失敗しました: {submitError}</p>}
+          {submitError && (
+            <Text size="sm" c="red">
+              最適化の実行に失敗しました: {submitError}
+            </Text>
+          )}
 
-          <p className="hint-text">
+          <Text size="sm" c="dimmed" my="sm">
             ウェイトは表示用に丸めた値（clean_weights）です。将来の成果や「最適」を保証するものではありません。
-          </p>
+          </Text>
 
           {result && (
-            <>
-              <h3>
-                最適配分の結果
-                {result.base_currency ? (
-                  <span className="result-currency">（基準通貨: {result.base_currency}）</span>
-                ) : null}
-              </h3>
-              <div className="compare-actions">
-                <button
-                  type="button"
-                  onClick={() => {
-                    addResult({
-                      id: makeResultId(),
-                      kind: 'optimization',
-                      label: `最適化（${result.params.optimization_method} / ${result.params.expected_return_method}） ${formatExecutedAt()}`,
-                      executedAt: new Date().toISOString(),
-                      periodStart: form.start || undefined,
-                      periodEnd: form.end || undefined,
-                      result,
-                      // バックテストの再最適化で再現するためのリクエストを保持する。
-                      request: buildRequest(form),
-                    } satisfies StoredResult);
-                    setAdded(true);
-                    window.setTimeout(() => setAdded(false), 2000);
-                  }}
-                >
-                  比較に追加
-                </button>
-                {added && <span className="hint-text">追加しました</span>}
-              </div>
-              {(result.warnings ?? []).map((w, i) => (
-                <p key={i} className="warning-text">
-                  {w}
-                </p>
-              ))}
-
-              <h4>資産別ウェイト</h4>
-              {Object.entries(result.clean_weights).length > 0 ? (
-                <table className="result-table">
-                  <thead>
-                    <tr>
-                      <th>資産</th>
-                      <th>ウェイト</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Object.entries(result.clean_weights)
-                      .sort(([, a], [, b]) => b - a)
-                      .map(([assetId, value]) => (
-                        <tr key={assetId}>
-                          <td>{assetLabel(assetId, assets?.assets)}</td>
-                          <td>{value.toFixed(4)}</td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              ) : (
-                <p className="warning-text">表示できるウェイトがありません。</p>
-              )}
-
-              <h4>個別資産のリターン・リスク（年率）</h4>
-              {Object.keys(result.metrics.asset_returns ?? {}).length > 0 ? (
-                <table className="result-table">
-                  <thead>
-                    <tr>
-                      <th>資産</th>
-                      <th>年率リターン（期待）</th>
-                      <th>年率ボラティリティ（リスク）</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {Object.keys(result.metrics.asset_returns)
-                      .sort()
-                      .map((assetId) => (
-                        <tr key={assetId}>
-                          <td>{assetLabel(assetId, assets?.assets)}</td>
-                          <td>{(result.metrics.asset_returns[assetId] * 100).toFixed(2)}%</td>
-                          <td>
-                            {(result.metrics.asset_volatilities[assetId] * 100).toFixed(2)}%
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              ) : (
-                <p className="warning-text">表示できる個別資産の統計がありません。</p>
-              )}
-
-              <h4>指標（年率）</h4>
-              <table className="result-table">
-                <tbody>
-                  <tr>
-                    <td>期待リターン（{EXPECTED_RETURN_LABELS[result.params.expected_return_method]}）</td>
-                    <td>{result.metrics.expected_annual_return.toFixed(4)}</td>
-                  </tr>
-                  <tr>
-                    <td>手法</td>
-                    <td>{METHOD_LABELS[result.params.optimization_method]}</td>
-                  </tr>
-                  <tr>
-                    <td>ボラティリティ</td>
-                    <td>{result.metrics.annual_volatility.toFixed(4)}</td>
-                  </tr>
-                  <tr>
-                    <td>シャープレシオ</td>
-                    <td>{result.metrics.sharpe_ratio.toFixed(4)}</td>
-                  </tr>
-                </tbody>
-              </table>
-
-              <h4>パラメータ</h4>
-              <p className="series-meta">
-                手法: {result.params.optimization_method} / 期待リターン:{' '}
-                {result.params.expected_return_method} / 共分散: {result.params.covariance_method} /
-                {' '}
-                リスクフリー金利: {result.params.risk_free_rate} / 年率換算係数:{' '}
-                {result.params.annualization_factor} / ウェイト上下限:{' '}
-                {result.params.weight_bounds[0]}〜{result.params.weight_bounds[1]}
-              </p>
-            </>
+            <OptimizationResult
+              result={result}
+              assetLabel={(id) => assetLabel(id, assets?.assets)}
+              added={added}
+              onAdd={() => {
+                addResult({
+                  id: makeResultId(),
+                  kind: 'optimization',
+                  label: `最適化（${result.params.optimization_method} / ${result.params.expected_return_method}） ${formatExecutedAt()}`,
+                  executedAt: new Date().toISOString(),
+                  periodStart: form.start || undefined,
+                  periodEnd: form.end || undefined,
+                  result,
+                  // バックテストの再最適化で再現するためのリクエストを保持する。
+                  request: buildRequest(form),
+                } satisfies StoredResult);
+                setAdded(true);
+                window.setTimeout(() => setAdded(false), 2000);
+              }}
+            />
           )}
         </>
       )}
-    </section>
+    </>
   );
 }

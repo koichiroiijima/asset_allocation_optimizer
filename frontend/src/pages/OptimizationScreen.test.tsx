@@ -1,9 +1,10 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { CompareProvider } from '../compare/CompareContext';
 import { OptimizationScreen } from './OptimizationScreen';
+import { render } from '../../tests/test-utils';
 
 /** CompareProvider で包んで描画する。実行結果の「比較に追加」用。 */
 function renderWithProvider(ui: React.ReactNode) {
@@ -137,21 +138,24 @@ function stubFetch(optimizationStub?: OptimizationStub | null) {
   return fetchMock;
 }
 
-/** 取得済み 2 資産を選択し、最適化を実行する共通ヘルパー。 */
+/** 取得済み 2 資産を選択し、最適化を実行する共通ヘルパー（資産選択はチェックボックス式）。 */
 async function selectTwoAssetsAndSubmit(user: ReturnType<typeof userEvent.setup>) {
-  await screen.findByRole('listbox', { name: /対象資産/ });
-  const assetSelect = screen.getByRole('listbox', { name: /対象資産/ });
-  await user.selectOptions(assetSelect, ['us_equity', 'us_bond']);
+  await screen.findByRole('checkbox', { name: '米国株式（VTI）' });
+  await user.click(screen.getByRole('checkbox', { name: '米国株式（VTI）' }));
+  await user.click(screen.getByRole('checkbox', { name: '米国債券（BND）' }));
   await user.click(screen.getByRole('button', { name: '最適化を実行' }));
 }
 
 describe('OptimizationScreen', () => {
   beforeEach(() => {
-    vi.stubGlobal('ResizeObserver', class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    });
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
   });
 
   afterEach(() => {
@@ -161,16 +165,13 @@ describe('OptimizationScreen', () => {
   it('未取得資産も選択肢に表示され、入力不可（disabled）になる', async () => {
     stubFetch();
     renderWithProvider(<OptimizationScreen />);
-    const assetSelect = await screen.findByRole('listbox', { name: /対象資産/ });
-    // 資産セレクト内の option のみを対象にする（手法・期待リターン等の option と混ざらない）
-    const assetOptions = Array.from(assetSelect.querySelectorAll('option'));
-    const texts = assetOptions.map((o) => o.textContent).sort();
-    expect(texts).toEqual(['米国を除く株式（VXUS）（未取得）', '米国債券（BND）', '米国株式（VTI）']);
-    // 取得済みは選択可、未取得は入力不可
-    const byText = (t: string) => assetOptions.find((o) => o.textContent === t)!;
-    expect(byText('米国株式（VTI）').disabled).toBe(false);
-    expect(byText('米国債券（BND）').disabled).toBe(false);
-    expect(byText('米国を除く株式（VXUS）（未取得）').disabled).toBe(true);
+    const available = await screen.findByRole('checkbox', { name: '米国株式（VTI）' });
+    expect(available).toBeEnabled();
+    expect(screen.getByRole('checkbox', { name: '米国債券（BND）' })).toBeEnabled();
+    // 未取得資産は消さず、入力不可（disabled）で表示する
+    expect(
+      screen.getByRole('checkbox', { name: '米国を除く株式（VXUS）（未取得）' }),
+    ).toBeDisabled();
   });
 
   it('対象資産2件を選択して実行すると POST body と結果が正しい', async () => {
@@ -199,7 +200,7 @@ describe('OptimizationScreen', () => {
     stubFetch();
     const user = userEvent.setup();
     renderWithProvider(<OptimizationScreen />);
-    await screen.findByRole('listbox', { name: /対象資産/ });
+    await screen.findByRole('checkbox', { name: '米国株式（VTI）' });
 
     // 既定（max_sharpe）では両方とも表示されるが入力不可
     const targetReturn = () => screen.getByRole('spinbutton', { name: /目標リターン/ });
@@ -225,7 +226,7 @@ describe('OptimizationScreen', () => {
     stubFetch();
     const user = userEvent.setup();
     renderWithProvider(<OptimizationScreen />);
-    await screen.findByRole('listbox', { name: /対象資産/ });
+    await screen.findByRole('checkbox', { name: '米国株式（VTI）' });
     const methodSelect = screen.getByRole('combobox', { name: /手法/ });
     await user.selectOptions(methodSelect, 'efficient_return');
     expect(screen.getByText('目標リターン（年率）')).toBeInTheDocument();
@@ -256,7 +257,9 @@ describe('OptimizationScreen', () => {
     const user = userEvent.setup();
     renderWithProvider(<OptimizationScreen />);
     await selectTwoAssetsAndSubmit(user);
-    await screen.findByText(/最適化の実行に失敗しました: データが未取得の資産があるため最適化を実行できません/);
+    await screen.findByText(
+      /最適化の実行に失敗しました: データが未取得の資産があるため最適化を実行できません/,
+    );
   });
 
   it('取得済みの資産が無い場合は警告を表示し、選択肢をすべて入力不可にする', async () => {
@@ -279,10 +282,8 @@ describe('OptimizationScreen', () => {
     renderWithProvider(<OptimizationScreen />);
     await screen.findByText(/取得済みの資産がありません。/);
     // フォームは描画されるが、選択肢はすべて入力不可（非表示にはしない）
-    const assetOptions = Array.from(
-      screen.getByRole('listbox', { name: /対象資産/ }).querySelectorAll('option'),
-    );
-    expect(assetOptions.length).toBe(3);
-    expect(assetOptions.every((o) => o.disabled)).toBe(true);
+    const checkboxes = screen.getAllByRole('checkbox');
+    expect(checkboxes.length).toBe(3);
+    expect(checkboxes.every((c) => (c as HTMLInputElement).disabled)).toBe(true);
   });
 });

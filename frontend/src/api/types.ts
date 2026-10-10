@@ -140,15 +140,9 @@ export interface AnalysisSpec {
 
 /** `POST /api/optimizations` のリクエスト/レスポンス。 */
 export type OptimizationMethod =
-  | 'max_sharpe'
-  | 'min_volatility'
-  | 'efficient_risk'
-  | 'efficient_return';
+  'max_sharpe' | 'min_volatility' | 'efficient_risk' | 'efficient_return';
 export type ExpectedReturnMethod =
-  | 'mean_historical_return'
-  | 'capm_return'
-  | 'ema_historical_return'
-  | 'black_litterman';
+  'mean_historical_return' | 'capm_return' | 'ema_historical_return' | 'black_litterman';
 export type CovarianceMethod = 'sample_cov' | 'semicovariance' | 'ledoit_wolf';
 export type BlOmegaMethod = 'default' | 'idzorek';
 

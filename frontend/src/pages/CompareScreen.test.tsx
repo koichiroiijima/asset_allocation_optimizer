@@ -1,14 +1,12 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
-import type {
-  BacktestResponse,
-  OptimizationResponse,
-} from '../api/types';
+import type { BacktestResponse, OptimizationResponse } from '../api/types';
 import { CompareProvider, useCompare } from '../compare/CompareContext';
 import { makeResultId, type StoredResult } from '../compare/types';
 import { CompareScreen } from './CompareScreen';
+import { render } from '../../tests/test-utils';
 
 /** テスト用の最適化結果。 */
 const OPTIMIZATION_RESULT: OptimizationResponse = {
@@ -136,9 +134,7 @@ describe('CompareScreen', () => {
         <CompareScreen />
       </CompareProvider>,
     );
-    expect(
-      screen.getByText(/比較に追加した結果がありません。/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/比較に追加した結果がありません。/)).toBeInTheDocument();
   });
 
   it('結果がある場合は一覧・比較表を表示し、ラベルと指標値が読める', async () => {

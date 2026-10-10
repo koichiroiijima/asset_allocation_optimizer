@@ -1,10 +1,11 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
 import { CompareProvider } from '../compare/CompareContext';
 import { AssetSetProvider } from '../state/AssetSetContext';
 import { BlOptimizationScreen } from './BlOptimizationScreen';
+import { render } from '../../tests/test-utils';
 
 /** CompareProvider で包んで描画する。実行結果の「比較に追加」用。 */
 function renderWithProvider(ui: React.ReactNode) {
@@ -143,22 +144,40 @@ function stubFetch(optimizationStub?: OptimizationStub | null) {
 
 describe('BlOptimizationScreen', () => {
   beforeEach(() => {
-    vi.stubGlobal('ResizeObserver', class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    });
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
   });
 
+  /** 市場ウェイトの入力欄（DOM 順＝資産IDのソート順）。 */
+  function marketWeightInputs() {
+    return screen.getAllByLabelText(/市場ウェイト（/) as HTMLInputElement[];
+  }
+
+  /** ビューの入力欄（DOM 順＝資産IDのソート順）。 */
+  function viewInputs() {
+    return screen.getAllByLabelText(/ビュー（/) as HTMLInputElement[];
+  }
+
+  /** 確信度の入力欄（ビューのある資産のみ）。 */
+  function confidenceInputs() {
+    return screen.getAllByLabelText(/確信度（/) as HTMLInputElement[];
+  }
+
   /** 取得済み 2 資産を選択する。BL 画面は資産選択で直ちに BL 入力が表示される。 */
   async function selectAssets(user: ReturnType<typeof userEvent.setup>) {
-    await screen.findByRole('listbox', { name: /対象資産/ });
-    const assetSelect = screen.getByRole('listbox', { name: /対象資産/ });
-    await user.selectOptions(assetSelect, ['us_equity', 'us_bond']);
+    await screen.findByRole('checkbox', { name: '米国株式（VTI）' });
+    await user.click(screen.getByRole('checkbox', { name: '米国株式（VTI）' }));
+    await user.click(screen.getByRole('checkbox', { name: '米国債券（BND）' }));
   }
 
   it('BL 選択で市場ポートフォリオ・ビュー・τ の入力が現れる', async () => {
@@ -183,12 +202,9 @@ describe('BlOptimizationScreen', () => {
 
     // 既定の4資産ウェイト（us_equity=22.88%, us_bond=21.40%）を選択資産2件で比率維持のまま
     // 合計100%に正規化する（us_bond の .sort() 順で並ぶ: 48.33% → 51.67%）
-    const weightInputs = screen
-      .getByText(/市場ポートフォリオのウェイト/)
-      .closest('label')!
-      .querySelectorAll('input');
+    const weightInputs = marketWeightInputs();
     expect(weightInputs.length).toBe(2);
-    const values = Array.from(weightInputs).map((i) => i.value);
+    const values = weightInputs.map((i) => i.value);
     expect(values.sort()).toEqual(['48.33', '51.67']);
   });
 
@@ -226,15 +242,10 @@ describe('BlOptimizationScreen', () => {
     await selectAssets(user);
 
     // ビューを入力すると確信度入力欄が現れる
-    const viewInputs = screen
-      .getByText(/ビュー（年率期待リターン/)
-      .closest('label')!
-      .querySelectorAll('input');
-    await user.type(viewInputs[0], '3');
+    await user.type(viewInputs()[0], '3');
 
     // ω=default でも入力可能（以前は disabled だった）
-    const confInput = () =>
-      screen.getByText(/ビューの確信度/).closest('label')!.querySelectorAll('input')[0];
+    const confInput = () => confidenceInputs()[0];
     const omegaSelect = screen.getByRole('combobox', { name: /ω（ビュー不確実性）/ });
     expect(omegaSelect).toHaveValue('default');
     expect(confInput()).toBeEnabled();
@@ -256,11 +267,7 @@ describe('BlOptimizationScreen', () => {
     await selectAssets(user);
 
     // ビューを入力
-    const viewInputs = screen
-      .getByText(/ビュー（年率期待リターン/)
-      .closest('label')!
-      .querySelectorAll('input');
-    await user.type(viewInputs[0], '3');
+    await user.type(viewInputs()[0], '3');
 
     // ω=idzorek に変更（確信度は未入力のまま）
     const omegaSelect = screen.getByRole('combobox', { name: /ω（ビュー不確実性）/ });
@@ -269,7 +276,9 @@ describe('BlOptimizationScreen', () => {
     await user.click(screen.getByRole('button', { name: '最適化を実行' }));
     // サーバへ送らず、クライアント検証で確信度未入力を明示する
     await screen.findByText(/ω=idzorek では、ビューのある資産すべてに確信度/);
-    expect(fetchMock.mock.calls.filter(([input]) => String(input).includes('/optimizations')).length).toBe(0);
+    expect(
+      fetchMock.mock.calls.filter(([input]) => String(input).includes('/optimizations')).length,
+    ).toBe(0);
   });
 
   it('idzorek で確信度を入力すると bl_view_confidences が POST に含まれる', async () => {
@@ -279,20 +288,12 @@ describe('BlOptimizationScreen', () => {
     await selectAssets(user);
 
     // ビューを入力
-    const viewInputs = screen
-      .getByText(/ビュー（年率期待リターン/)
-      .closest('label')!
-      .querySelectorAll('input');
-    await user.type(viewInputs[0], '3');
+    await user.type(viewInputs()[0], '3');
 
     // ω=idzorek に変更し、確信度を入力
     const omegaSelect = screen.getByRole('combobox', { name: /ω（ビュー不確実性）/ });
     await user.selectOptions(omegaSelect, 'idzorek');
-    const confInputs = screen
-      .getByText(/ビューの確信度/)
-      .closest('label')!
-      .querySelectorAll('input');
-    await user.type(confInputs[0], '0.8');
+    await user.type(confidenceInputs()[0], '0.8');
 
     await user.click(screen.getByRole('button', { name: '最適化を実行' }));
     await waitFor(() => expect(screen.getByText('0.3000')).toBeInTheDocument());
@@ -313,12 +314,8 @@ describe('BlOptimizationScreen', () => {
     renderWithProvider(<BlOptimizationScreen />);
     await selectAssets(user);
 
-    const weightInputs = screen
-      .getByText(/市場ポートフォリオのウェイト/)
-      .closest('label')!
-      .querySelectorAll('input');
     // 2 資産目の値を書き換えて合計を崩す
-    const secondInput = weightInputs[1];
+    const secondInput = marketWeightInputs()[1];
     await user.clear(secondInput);
     await user.type(secondInput, '10');
     await user.click(screen.getByRole('button', { name: '最適化を実行' }));
@@ -385,7 +382,9 @@ describe('BlOptimizationScreen', () => {
       const url = String(input);
       if (url.includes('/assets')) return Promise.resolve(jsonResponse(jpAssets));
       if (url.includes('/health')) {
-        return Promise.resolve(jsonResponse({ status: 'ok', app: 'a', version: '1', app_env: 'test' }));
+        return Promise.resolve(
+          jsonResponse({ status: 'ok', app: 'a', version: '1', app_env: 'test' }),
+        );
       }
       return Promise.resolve(jsonResponse({ detail: 'not found' }, 404));
     });
@@ -400,19 +399,15 @@ describe('BlOptimizationScreen', () => {
       </AssetSetProvider>,
     );
 
-    await screen.findByRole('listbox', { name: /対象資産/ });
-    await user.selectOptions(screen.getByRole('listbox', { name: /対象資産/ }), [
-      'jp_equity',
-      'jp_bond',
-    ]);
+    await screen.findByRole('checkbox', { name: '日本株式（1306.T）' });
+    await user.click(screen.getByRole('checkbox', { name: '日本株式（1306.T）' }));
+    await user.click(screen.getByRole('checkbox', { name: '日本債券（2510.T）' }));
     // 資産一覧は set=jp で取得される
-    expect(fetchMock.mock.calls.map((c) => String(c[0])).some((u) => u.includes('/assets?set=jp'))).toBe(true);
+    expect(
+      fetchMock.mock.calls.map((c) => String(c[0])).some((u) => u.includes('/assets?set=jp')),
+    ).toBe(true);
 
-    const weightInputs = screen
-      .getByText(/市場ポートフォリオのウェイト/)
-      .closest('label')!
-      .querySelectorAll('input');
-    const values = Array.from(weightInputs)
+    const values = marketWeightInputs()
       .map((i) => i.value)
       .sort();
     // JP 仮既定（jp_equity 0.25 / jp_bond 0.35）を選択2件で合計100%へ正規化: 41.67 / 58.33

@@ -17,9 +17,7 @@ export const KIND_LABELS: Record<StoredResultKind, string> = {
 };
 
 /** 結果の基準通貨からモード（資産セット）を導出する。JPY は日本モード、それ以外は米国モード。 */
-export function assetSetOfResult(
-  result: OptimizationResponse | BacktestResponse,
-): AssetSet {
+export function assetSetOfResult(result: OptimizationResponse | BacktestResponse): AssetSet {
   const currency = isOptLike(result) ? result.base_currency : result.currency;
   return currency === 'JPY' ? 'jp' : 'us';
 }

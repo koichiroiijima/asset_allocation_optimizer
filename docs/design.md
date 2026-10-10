@@ -2,7 +2,7 @@
 
 この文書は実装上の設計判断を記録する。詳細な金融モデル仕様・データソース選定はここに集約する。実装の進め方・ガイドラインは `CLAUDE.md` を参照（矛盾する場合はユーザーの最新指示を優先し、本メモを更新する）。
 
-**ステータス**: 初期ひな型（スケルトン）構築完了。Yahoo データ取得 CLI（fetch → raw → normalize → processed → export-csv）実装完了。データ確認 GUI 第1弾（`/api/data/series` 配線・`/api/assets` の data_status・データ画面）実装完了。**最適化サービス（PyPortfolioOpt・`static_allocation`）・最適化 API（`POST /api/optimizations`）・最適化画面（GUI）、分析 API（`GET /api/data/analysis`、`stats` 含む）と分析画面、バックテスト（固定ウェイト＋再最適化・`POST /api/backtests`・バックテスト画面）、`app/domain/returns.py` のローリングボラ・相関行列・リターン統計、比較・保存画面**を実装済み。**最適化画面は「最適化」/「最適化（BL）」の2タブ分割（BL は専用フォーム・EMA 参考表示付き）**。**再最適化（`rebalance_allocation`・バックテストの `reoptimize`）、年次（Y）リバランス、最適化結果の個別資産リターン/リスク、対象資産UI統一**も実装済み。**Black-Litterman（`expected_return_method="black_litterman"`・市場ポートフォリオ設定・絶対ビュー・ω/tau/リスク回避度）**も実装済み。未実装は、バックテスト実行結果の再現可能な保存（runs/jobs 配線）、API/GUI からのデータ取得（data_fetch）配線、BL の相対ビュー・`omega="manual"`・AUM 入力、`price_max_staleness_days` の適用。
+**ステータス**: 初期ひな型（スケルトン）構築完了。Yahoo データ取得 CLI（fetch → raw → normalize → processed → export-csv）実装完了。データ確認 GUI 第1弾（`/api/data/series` 配線・`/api/assets` の data_status・データ画面）実装完了。**最適化サービス（PyPortfolioOpt・`static_allocation`）・最適化 API（`POST /api/optimizations`）・最適化画面（GUI）、分析 API（`GET /api/data/analysis`、`stats` 含む）と分析画面、バックテスト（固定ウェイト＋再最適化・`POST /api/backtests`・バックテスト画面）、`app/domain/returns.py` のローリングボラ・相関行列・リターン統計、比較・保存画面**を実装済み。**最適化画面は「最適化」/「最適化（BL）」の2タブ分割（BL は専用フォーム・EMA 参考表示付き）**。**再最適化（`rebalance_allocation`・バックテストの `reoptimize`）、年次（Y）リバランス、最適化結果の個別資産リターン/リスク、対象資産UI統一**も実装済み。**Black-Litterman（`expected_return_method="black_litterman"`・市場ポートフォリオ設定・絶対ビュー・ω/tau/リスク回避度）**も実装済み。**GUI は Mantine 8（ライト固定・`AppShell` サイドバー型・対象資産はチェックボックス式）へ刷新済み**（2026-10-10・詳細は §9 と `docs/gui_refresh_plan.md`）。未実装は、バックテスト実行結果の再現可能な保存（runs/jobs 配線）、API/GUI からのデータ取得（data_fetch）配線、BL の相対ビュー・`omega="manual"`・AUM 入力、`price_max_staleness_days` の適用。
 
 ---
 
@@ -15,7 +15,7 @@
 | 数値 | pandas / numpy / scipy / PyPortfolioOpt | CLAUDE.md 指定。最適化エンジン `static_allocation` は実装済み |
 | データ保存 | Parquet（価格系列）+ SQLite（索引・資産定義・ジョブ・結果） | 分析に適した列指向 + 軽量な索引。今後置換可能に抽象化 |
 | 依存管理 (Python) | **uv**（`pyproject.toml` + `uv.lock` コミット） | ユーザー選択。再現性のあるロック |
-| フロント | React 18 + TypeScript + Vite + **Recharts** | ユーザー選択（グラフは Recharts）。型チェック・ESLint・Prettier・vitest |
+| フロント | React 18 + TypeScript + Vite + **Mantine 8**（UI ライブラリ）+ **Recharts** | ユーザー選択（グラフは Recharts、UI は Mantine・ライト固定・AppShell サイドバー型）。型チェック・ESLint・Prettier・vitest |
 | 依存管理 (Frontend) | **npm**（`package-lock.json` コミット） | ユーザー選択。pnpm は不使用 |
 
 ## 2. ディレクトリ構成（実装済み）
@@ -61,15 +61,17 @@ backend/
     main.py         # create_app(settings=None) アプリファクトリ
     __init__.py     # __version__ = "0.1.0"
   tests/            # pytest 一式（test_cli / test_yahoo_provider / test_normalize / test_pipeline / test_export / test_analysis_api / test_optimizations_api ほか）
-  tests/fixtures/   # yahoo_vti_sample.json（ネットワーク不使用のテスト用サンプル）
+  tests/fixtures/   # yahoo_vti_sample.json / yahoo_jp_sample.json（ネットワーク不使用のテスト用サンプル）
 frontend/
   src/
     api/            # types.ts / client.ts（fetch ラッパー）/ index.ts
-    components/     # Header, HealthCheck
     hooks/          # useHealth, useAssets, useSeries, useAnalysis
-    pages/          # Data / Analysis（実装済み）/ Optimization / BlOptimization / Backtest / Compare（6画面）
+    pages/          # Data / Analysis / Optimization / BlOptimization / Backtest / Compare（6画面・全て実装済み）
+    components/     # HeaderBar / HealthBadge / NavMenu / layout（AppShellLayout）/ ui（PageHeader・SectionCard・ResultCard・OptimizationResult・StatusBadge・ErrorNotice）
+    charts/         # theme.ts（系列パレット・余白・軸フォーマッタの共通定義）
+    theme.ts        # Mantine テーマ（ライト固定）
     App.tsx / main.tsx / index.css
-  tests/            # setup.ts / api.test.ts / DataScreen.test.tsx / App.test.tsx ほか
+  tests/            # setup.ts / test-utils.tsx / api.test.ts / DataScreen.test.tsx / App.test.tsx ほか
 scripts/            # start.sh / stop.sh（開発サーバーの起動・停止）
 data/               # raw / processed / fixtures（git 管理外）
 outputs/            # optimization / backtest（git 管理外）
@@ -88,7 +90,9 @@ docs/design.md      # 本メモ
 ### 3.2 フロントエンド
 
 - **API型と画面状態を分離**: `src/api/types.ts` にサーバー契約の型を定義し、`client.ts` の fetch ラッパーを介す。画面は型付きのクライアントのみを使う。
+- **UI ライブラリ**: **Mantine 8**（`@mantine/core` + `@mantine/hooks`・ライト固定 `forceColorScheme="light"`）。レイアウトは `AppShell` による**サイドバー型**（`AppShellLayout`・左ナビ `NavMenu`（`NavLink component="button"`・タブ契約維持）＋ヘッダー `HeaderBar`（タイトル・モード切替 `SegmentedControl`・基準通貨バッジ・`HealthBadge`）。共有 UI は `components/ui/`（`PageHeader`・`SectionCard`・`ResultCard`・`OptimizationResult`・`StatusBadge`・`ErrorNotice`）、グラフ共通は `charts/theme.ts`（系列パレット・余白・軸フォーマッタ）。
 - **画面は6つ**: データ / 分析 / 最適化 / **最適化（BL）** / バックテスト / 比較・保存。データ画面（資産一覧＋系列グラフ）・**分析画面**（`useAnalysis` フック＋`getAnalysis`）・**最適化画面**（`OptimizationScreen.tsx`、BL 除外）・**最適化（BL）画面**（`BlOptimizationScreen.tsx`、BL 専用・期待リターン固定）・**バックテスト画面**（`BacktestScreen.tsx`＋`runBacktest`）は実装済み。比較・保存画面（`CompareScreen.tsx`・`compare/CompareContext.tsx`）は実装済み（実行結果をグローバル保持・JSON/CSV エクスポート）。
+- **対象資産の複数選択はチェックボックス式**（`Checkbox.Group`・未取得資産は disabled＋「（未取得）」表示）。単一選択系は `NativeSelect`（ネイティブ `<select>` を Mantine でスタイル・テスト互換維持）、数値入力は `TextInput type="number"`（`step` 属性を直接制御）、日付入力は `TextInput type="date"`。
 - **状態管理**: 現段階は React 標準の state + カスタムフック（`useHealth` / `useAssets` / `useSeries` / `useAnalysis`）。必要になった段階で検討。
 
 ## 4. 設定モデル（`config/settings.py`）
@@ -295,7 +299,7 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
   - 指定期間に価格データが無い場合も 400。
   - `OptimizationInputError`（データ不足・制約矛盾・非正価格・達成不能な目標値など）は `str(exc)` をそのまま `HTTPException(detail=...)` へ変換（ユーザーに理解可能な日本語のまま顕在化）。
 - **警告の連結**: ルート層で検出した欠落行情報（`load_warnings`）をサービス層の `warnings` の先頭に連結して UI に返す。
-- **テスト**: `tests/test_optimizations_api.py`（14件）が成功系・400 系（未取得資産・期間外）・期間指定・422・**BL**（成功・市場ウェイト合計・τ 不正・ビュー対象外・市場ウェイト不整合）を検証。
+- **テスト**: `tests/test_optimizations_api.py`（17件）が成功系・400 系（未取得資産・期間外）・期間指定・422・**BL**（成功・市場ウェイト合計・τ 不正・ビュー対象外・市場ウェイト不整合）を検証。
 
 ### 7.3 バックテスト（固定ウェイト・実装済み）
 
@@ -318,7 +322,7 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
   - バリデーション閾値: `weights` 各 0〜1・合計誤差 `abs(Σ−1)≤1e-4`。`initial_capital` は `>0`、`cost_rate` は `0 ≤ r < 1`（両建てレッグ）。`yearly`（`YearlyPerformance`）は**前年最終観測日基準の暦年複利リターン**で、初年度（前年が無い年）は出力されない。
 - **API** `app/api/routes/backtests.py`: `POST /api/backtests` 同期。`load_price_matrix` で価格行列（未取得資産は 400 で明示）→ `reoptimize=True` なら `rebalance_allocation` で `weights_by_exec` を構築（最適化対象資産が未取得なら 400）→ `run_backtest` → `BacktestInputError` は 400（日本語）。スキーマ検証違反（ウェイト合計・キー不一致）は 422。
 - **GUI** `frontend/src/pages/BacktestScreen.tsx`: 対象資産（**最適化と同じ multi-select ドロップダウン**・未取得は disabled 表示）・資産ごと固定ウェイト（number input・合計をリアルタイム表示）・リバランス頻度（日次/週次/月次/**年次**）・初期資金（**小数可・`step="any"`**。ブラウザの刻み検証に依存せず、検証はクライアントの `validateForm`（NaN・0以下）とサーバー側 `gt=0` で担保）・コスト率・リスクフリー金利・期間・**再最適化元の最適化（比較一覧から選択。選択でそのアルゴリズムにより再最適化、未選択なら固定ウェイト）**を入力（**「リバランス時に再最適化」チェックボックスは廃止し、選択の有無だけで `reoptimize` を制御**）。結果表示は評価指標表（`null` は「—」）・累積資産折れ線・ドローダウン折れ線・年次成績表・配分推移折れ線・**リバランス時の採用ウェイト表（再最適化時）**・取引一覧（直近200件）・params echo・免責表示（Recharts・`.opt-form`/`.result-table`）。
-- **テスト**: `tests/test_backtest.py`（20件: 単一/2資産・次営業日約定・コスト/回転率・指標手計算・**バイアス検知**（未来データ変更で過去 equity/drawdown/trades が不変・再最適化時も）・中途終了が全期間の prefix・年次頻度・再最適化の採用ウェイト/失敗時継続・エラー/警告/null）・`tests/test_backtests_api.py`（13件: 200・JSONにNaN無し・400・422・年次・再最適化・BL 再最適化）・`BacktestScreen.test.tsx`（14件）。
+- **テスト**: `tests/test_backtest.py`（20件: 単一/2資産・次営業日約定・コスト/回転率・指標手計算・**バイアス検知**（未来データ変更で過去 equity/drawdown/trades が不変・再最適化時も）・中途終了が全期間の prefix・年次頻度・再最適化の採用ウェイト/失敗時継続・エラー/警告/null）・`tests/test_backtests_api.py`（14件: 200・JSONにNaN無し・400・422・年次・再最適化・BL 再最適化）・`BacktestScreen.test.tsx`（9件）。
 - **既知の制約**: 「実行結果の再現可能な保存」（スナップショット・コードバージョン永続化）は今回スコープ外。params echo と固定データにより手動再現は可能。runs/jobs への配線は未実施（メモリ内プレースホルダーのまま）。
 
 ## 8. API 設計（初期スケジュール）
@@ -329,10 +333,12 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
 
 初期版の公開範囲は **localhost 利用のみ**。ネットワーク公開時は認証・認可、CORS許可元、レート制限、APIキーの秘密管理、入力サイズ制限、監査ログを設計してから有効化する。
 
-## 9. GUI 画面（初期6画面）
+## 9. GUI 画面（初期6画面・Mantine による刷新済み）
 
-1. **データ**（実装済み）: 4資産の候補・データソース・期間・欠損・取得日時・価格種別を確認（series_type / frequency 選択、系列折れ線）
-2. **分析**（実装済み）: 価格推移・累積リターン・ローリングボラティリティ・相関ヒートマップ（frequency D/W/M 切り替え、取得済み資産のみ対象）
+レイアウトは **Mantine `AppShell` のサイドバー型**（左ナビ＋ヘッダー）。ヘッダーにアプリ名・モード切替（`SegmentedControl`・radio inputs ベース）・基準通貨バッジ・API 接続状態（`HealthBadge`、`data-testid="health"`）を置く。各画面は `PageHeader`（h2＝タブ名）＋ `SectionCard`（h3/h4 見出し付きカード）で構成し、結果は `ResultCard`／最適化結果は `OptimizationResult`（最適化・BL で共用）に統一。
+
+1. **データ**（実装済み）: 4資産の候補・データソース・期間・欠損・取得日時・価格種別を確認（`Table`＋状態 `Badge`・series_type / frequency 選択、系列折れ線）
+2. **分析**（実装済み）: 価格推移・累積リターン・ローリングボラティリティ・相関ヒートマップ（frequency D/W/M 切り替え、取得済み資産のみ対象。系列名は資産表示名）
 3. **最適化**（実装済み）: 手法・期待リターン（BL 除く）・共分散・期間・制約・リスクフリー金利 → ウェイト・期待利得・リスク・Sharpe（`POST /api/optimizations` 配線）
 4. **最適化（BL）**（実装済み）: Black-Litterman 専用フォーム（市場ポートフォリオ・絶対ビュー・確信度・ω・τ・リスク回避度。期待リターンは black_litterman 固定・共分散は選択可能）。確信度は**常に入力可能**で、入力すると ω を Idzorek へ自動切替する（ω=default では未使用）。結果は `kind:'optimization'` で保存されバックテストの再最適化元にも選択可
 5. **バックテスト**（実装済み）: 対象資産・固定ウェイト・リバランス頻度・初期資金・コスト率 → 累積資産・ドローダウン・年次成績・配分推移・取引一覧（`POST /api/backtests` 配線）
@@ -343,7 +349,7 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
 ## 10. 品質管理
 
 - backend: pytest / ruff / mypy（strict）/ pandas-stubs。`pyproject.toml` + `uv.lock` で固定。
-- frontend: ESLint / Prettier / TypeScript（strict）/ vitest + Testing Library。`package-lock.json` をコミット。
+- frontend: ESLint / Prettier / TypeScript（strict）/ vitest + Testing Library / **Mantine 8**（UI）。`package-lock.json` をコミット。
 - 重要な計算は固定データによる再現可能テストを持つ。外部データへ依存するテストは固定保存データを使い、ネットワーク依存テストと分離する。
 - 再現性テスト: データスナップショット・依存関係・設定JSONのハッシュを使う（後続）。
 
@@ -391,6 +397,8 @@ export-csv   processed/{asset}.parquet → processed/{asset}.csv（UTF-8, %Y-%m-
 - **2026-10-03** — **価格異常値の検出・除外と最適化ウェイトの上下限保証**（OpenCode 作業・ユーザー報告の不具合修正）。報告: 日本モードで max_sharpe＋EMA リターンを選ぶと日本株 100% 超・他資産が負値になる。原因は2つ。**(a) データ異常**: `jp_equity`（`1306.T`）の `2026-03-30` / `03-31` の `raw_close`・`adjusted_close` が前後（約380円）の **約1/10**（約37円）で、Yahoo は分割を返さず（`events.splits` 空）再取得でも同一だった。これにより `ema_historical_return` の年率期待リターンが **約262倍** に発散し、max_sharpe が日本株へ全振りした。**(b) 数値誤差**: PyPortfolioOpt の `max_sharpe` は変換空間で解くため、上下限 `(0,1)` を有効にしても結果が境界を僅かに外れる（実測 `1.000577` / `-0.000255`）。対策として、①**異常値検出** `app/data/quality.py::detect_price_anomalies`（前後を含むローリング中央値 `center=True`・窓21・既定しきい値「中央値比 2 倍超 / 0.5 倍未満」）を新設し、`load_price_matrix`（`route_helpers.py`）で各資産の系列から検出した**日付の行を価格行列から除外**して日本語警告に明示（分析・最適化・バックテスト共通。値の推測補完はしない。中央値は恒久的な分割段差に追従するため、`jp_equity` の 2015-01-05 の段差は誤検出しないことを実データで確認）。②**ウェイト上下限の射影** `_enforce_weight_bounds`（`optimization/service.py`）で上下限へクリップ→合計1へ再正規化し、実施時は日本語警告を積む。③上下限補正後のウェイトと指標が一致するよう `_portfolio_performance` で最終ウェイトから年率リターン/ボラ/Sharpe を再計算（`clean_weights` は PyPortfolioOpt 同等の `cutoff=1e-4`・5桁丸め）。④テスト: backend **218 件**（+10: 異常値検出6・上下限射影3・API 異常除外1）。修正後は日本モード max_sharpe＋EMA が全ウェイト `[0,1]`・合計1・EMA リターン正常値（例: 日本株 30.9%）に収まる。**異常値検出自体は既定値固定（設定項目化・分割補正は将来）**。
 
 - **2026-10-03** — **BL 確信度入力を常時編集可能に変更**（OpenCode 作業・ユーザー報告の UX 不具合・フロントのみ）。報告: 「ビューの確信度」が placeholder「必須」を表示するのに、ω=default（既定）では入力欄が disabled で入力できない。直前の設計（同日④「常時表示＋ω≠idzorek で disabled」）が原因。修正として、確信度入力を**常に編集可能**にし、**値が入力されたら ω を自動で Idzorek へ切替**する（ω=default では確信度が使われず入力が無視されるため。`handleConfidenceChange`）。ラベル/placeholder を「ビューの確信度（0〜1・ビューのある資産）」／「0〜1」に修正し、ヒントで「入力すると ω は Idzorek に切替・ω=default では未使用・Idzorek では全ビュー資産に 0〜1 が必要」を明示。ω セレクトは残し、選択による切替も引き続き可能。テスト `BlOptimizationScreen.test.tsx` を新挙動へ更新（常時 enabled・入力で ω=idzorek へ自動切替・default へ戻しても編集可）。
+
+- **2026-10-10** — **GUI を刷新**（`new_gui` ブランチ・`docs/gui_refresh_plan.md` の計画に基づく実装・フロント only・backend 不変）。ユーザー決定: ①UI ライブラリは **Mantine 8**（`@mantine/core` / `@mantine/hooks` / `@tabler/icons-react`）を導入、②レイアウトは **`AppShell` のサイドバー型**（左ナビ6タブ・`NavLink component="button"` で button role を維持）、③テーマは**ライト固定**（`forceColorScheme="light"`・旧 `color-scheme: light dark` との不整合を解消）、④**対象資産の複数選択を multi-select から `Checkbox.Group`（チェックボックス式）へ変更**（未取得は disabled＋「（未取得）」維持）。機能・API・フック・数値ロジックは不変。実装方針: 単一選択は **`NativeSelect`**（ネイティブ `<select>` を描画し combobox role・`selectOptions` 互換でテスト改修を最小化）、数値入力は **`TextInput type="number"`**（`step="any"` 等の属性制御のため `NumberInput`（react-number-format）を避ける・初期資金の `step="any"` 契約維持）、日付は `TextInput type="date"`。共有化: `theme.ts`（ライト固定テーマ）・`components/layout/AppShellLayout.tsx`・`NavMenu`・`HeaderBar`（モード切替を `SegmentedControl` へ・テストは `aria-pressed` から `radio` checked へ更新）・`HealthBadge`（`data-testid="health"` 維持）・`ui/`（`PageHeader`・`SectionCard`・`ResultCard`・`StatusBadge`・`ErrorNotice`・`OptimizationResult`＝最適化/BL の結果表を共用化）・`charts/theme.ts`（旧重複パレットを一元化）。テストは Mantine 用の jsdom モック（`matchMedia`/`ResizeObserver`/`scrollIntoView`）を `tests/setup.ts` に追加し、`tests/test-utils.tsx` の MantineProvider 付き `render` に差し替え。**日本語ラベル・数値フォーマット（toFixed/% 精度）・検証内容は不変**（57件 frontend・224件 backend とも全 green）。ドキュメントの実装状況不一致（design.md §7.2/§7.3・TODO.md のテスト件数内訳、TODO.md の実データ取得状態、handover.md のブランチ/未 push 記載）も同時修正。`.prettierignore`（`dist/`）を追加。**開発サーバー実機でのブラウザ目視確認は未実施**（環境に Chrome 無し・テストとビルドで検証）。
 
 - **2026-10-03** — **未調整の株式分割（1306.T）の検出と分割前データ除外**（OpenCode 作業・ユーザー報告のデータ不整合・ユーザー決定「分割前データを除外」）。報告: 分析画面の2014年頃でデータが非連続・以後の値が低すぎる。検証の結果、該当は「日本を除く外国株式」(1550.T / `ex_jp_equity`) ではなく**「日本株式」(`jp_equity` / `1306.T`)** で、①**2015-01-05 の 10:1 分割が `adjusted_close` に未反映**（`raw_close`・`adjusted_close` とも約1/10に落ちて以後戻らない。Yahoo の `events.splits` は空・再取得でも同一）、②**2015-07-10 の配当23円が分割前スケールのまま**で `adjusted_close` が +16.7% スプリアス上昇（2016年以降は 2.73 等）。`ex_jp_equity`（1550.T）と `ex_us_equity`（VXUS）は2014年前後で連続・正常。対策として `app/data/quality.py` に `detect_splits(raw_close)`（前日比が共通分割比率に近く、前後の中央値で水準が持続する分割を検出）と `latest_split_cutoff` を追加し、`load_price_matrix` と `/api/data/series` が**当該資産のみ分割前の観測を除外**（値は変更しない・日本語警告）。2020年の COVID 急落（-30%）や V字回復は誤検出しないことを実データ・テストで確認。テスト +6件（分割検出4・`load_price_matrix` 2）。**背調整(back-adjust)は行わない**（ユーザー決定）。分割後の配当調整異常（2015-07-10）は残課題。
 

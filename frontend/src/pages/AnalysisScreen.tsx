@@ -9,9 +9,14 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { Box, NativeSelect, Table, Text } from '@mantine/core';
 import { useAssets } from '../hooks/useAssets';
 import type { AnalysisSpec, Asset, Frequency } from '../api/types';
 import { useAnalysis } from '../hooks/useAnalysis';
+import { PageHeader } from '../components/ui/PageHeader';
+import { SectionCard } from '../components/ui/SectionCard';
+import { ErrorNotice } from '../components/ui/ErrorNotice';
+import { CHART_MARGIN, percentTick, seriesColor } from '../charts/theme';
 
 /** 頻度の選択肢。 */
 const FREQUENCY_OPTIONS: { value: Frequency; label: string }[] = [
@@ -19,9 +24,6 @@ const FREQUENCY_OPTIONS: { value: Frequency; label: string }[] = [
   { value: 'W', label: '週次' },
   { value: 'M', label: '月次' },
 ];
-
-/** グラフごとの資産別線色（4資産 + 折返し）。 */
-const COLORS = ['#2a6e9b', '#c0573f', '#2f8f5b', '#b0882f', '#6b5fa8', '#3f9ab0'];
 
 function formatDate(dateText: string): string {
   const d = new Date(`${dateText}T00:00:00`);
@@ -35,13 +37,13 @@ function assetLabel(assetId: string, assets: Asset[] | undefined): string {
 }
 
 /** 1つの資産系列を折れ線にする。dataKey は縦持ち行の資産ID列名（row[assetId]）。 */
-function seriesLine(assetId: string, _series: unknown, color: string) {
+function seriesLine(assetId: string, displayName: string, color: string) {
   return (
     <Line
       key={assetId}
       type="monotone"
       dataKey={assetId}
-      name={assetId}
+      name={displayName}
       stroke={color}
       dot={false}
       connectNulls={false}
@@ -53,7 +55,9 @@ function seriesLine(assetId: string, _series: unknown, color: string) {
  * 価格推移グラフ。複数資産を横軸=日付で並べるため、観測日ごとに
  * `{ date, [assetId]: value }` へ縦持ちにする。値はその資産の観測日の値（他資産は undefined）。
  */
-function longestXSeries(seriesList: { asset_id: string; points: { date: string; value: number }[] }[]) {
+function longestXSeries(
+  seriesList: { asset_id: string; points: { date: string; value: number }[] }[],
+) {
   let best = seriesList[0] ?? { asset_id: '', points: [] };
   for (const s of seriesList) {
     if (s.points.length > best.points.length) best = s;
@@ -66,7 +70,6 @@ function seriesMatrix(
   seriesList: { asset_id: string; points: { date: string; value: number }[] }[],
 ) {
   const xDates = longestXSeries(seriesList);
-  const dateSet = new Set(xDates);
   return {
     xDates,
     rows: xDates.map((date) => {
@@ -75,7 +78,6 @@ function seriesMatrix(
         const point = s.points.find((p) => p.date === date);
         row[s.asset_id] = point?.value;
       }
-      void dateSet;
       return row;
     }),
   };
@@ -92,9 +94,10 @@ function corrColor(value: number | null | undefined): string {
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-function corrColorClass(value: number | null | undefined): string {
-  if (value === null || value === undefined || Number.isNaN(value)) return '';
-  return Math.abs(value) < 0.15 ? 'corr-cell-light' : 'corr-cell';
+/** 相関表のセル文字色（値が小さいうちは暗い文字で可読性を保つ）。 */
+function corrTextColor(value: number | null | undefined): string {
+  if (value === null || value === undefined || Number.isNaN(value)) return '#1f2430';
+  return Math.abs(value) < 0.15 ? '#1f2430' : '#fff';
 }
 
 /** 分析画面（価格推移・累積リターン・ローリングボラ・相関ヒートマップ）。 */
@@ -111,206 +114,251 @@ export function AnalysisScreen() {
   );
 
   const spec = useMemo<AnalysisSpec | null>(
-    () => (availableAssets.length > 0 ? { asset_ids: availableAssets.map((a) => a.logical_asset), frequency } : null),
+    () =>
+      availableAssets.length > 0
+        ? { asset_ids: availableAssets.map((a) => a.logical_asset), frequency }
+        : null,
     [availableAssets, frequency],
   );
 
   const { analysis, error: analysisError, loading: analysisLoading, refresh } = useAnalysis(spec);
 
   return (
-    <section>
-      <h2>分析</h2>
-      <p>取得済み資産の価格推移・累積リターン・ローリングボラティリティ・相関を表示します。</p>
+    <>
+      <PageHeader
+        title="分析"
+        intro="取得済み資産の価格推移・累積リターン・ローリングボラティリティ・相関を表示します。"
+      />
 
-      {assetsLoading && <p>資産一覧を読み込み中…</p>}
+      {assetsLoading && <Text>資産一覧を読み込み中…</Text>}
       {assetsError && (
-        <div className="error-box">
-          <p>資産一覧の取得に失敗しました: {assetsError}</p>
-          <button type="button" onClick={() => void refresh()}>
-            再試行
-          </button>
-        </div>
+        <ErrorNotice
+          message={`資産一覧の取得に失敗しました: ${assetsError}`}
+          onRetry={() => void refresh()}
+        />
       )}
 
       {spec && (
-        <div className="controls">
-          <label>
-            頻度
-            <select
-              value={frequency}
-              onChange={(e) => setFrequency(e.target.value as Frequency)}
-            >
-              {FREQUENCY_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+        <Box mb="sm">
+          <NativeSelect
+            label="頻度"
+            w={160}
+            value={frequency}
+            onChange={(e) => setFrequency(e.target.value as Frequency)}
+            data={FREQUENCY_OPTIONS}
+          />
+        </Box>
       )}
 
-      {analysisError && <p className="error-text">分析データの取得に失敗しました: {analysisError}</p>}
-      {analysisLoading && <p>分析データを読み込み中…</p>}
+      {analysisError && (
+        <Text size="sm" c="red">
+          分析データの取得に失敗しました: {analysisError}
+        </Text>
+      )}
+      {analysisLoading && <Text>分析データを読み込み中…</Text>}
 
       {analysis && (
         <>
           {(analysis.warnings ?? []).map((w, i) => (
-            <p key={i} className="warning-text">
+            <Text key={i} size="sm" c="yellow.8">
               {w}
-            </p>
+            </Text>
           ))}
 
           {analysis.assets_used.length === 0 ? (
-            <p className="warning-text">
+            <Text size="sm" c="yellow.8">
               取得済みの資産がありません。先にデータ取得 CLI を実行してください。
-            </p>
+            </Text>
           ) : (
             <>
-              <div className="controls">
-                <p className="series-meta">
-                  対象資産: {analysis.assets_used.map((a) => assetLabel(a, assets?.assets)).join('、')}
-                  &nbsp;/ 通貨: {analysis.currency}
-                </p>
-              </div>
+              <Text size="sm" c="dimmed" mb="sm">
+                対象資産:{' '}
+                {analysis.assets_used.map((a) => assetLabel(a, assets?.assets)).join('、')}
+                {' / '}通貨: {analysis.currency}
+              </Text>
 
-              <h3>価格推移</h3>
-              {(() => {
-                const { xDates, rows } = seriesMatrix(analysis.prices);
-                void xDates;
-                return rows.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={320}>
-                    <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" />
-                      <YAxis domain={['auto', 'auto']} />
-                      <Tooltip />
-                      <Legend />
-                      {analysis.prices.map((s, i) => seriesLine(s.asset_id, s, COLORS[i % COLORS.length]))}
-                    </LineChart>
-                  </ResponsiveContainer>
+              <SectionCard title="価格推移">
+                {(() => {
+                  const { rows } = seriesMatrix(analysis.prices);
+                  return rows.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={320}>
+                      <LineChart data={rows} margin={CHART_MARGIN}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="date" />
+                        <YAxis domain={['auto', 'auto']} />
+                        <Tooltip />
+                        <Legend />
+                        {analysis.prices.map((s, i) =>
+                          seriesLine(
+                            s.asset_id,
+                            assetLabel(s.asset_id, assets?.assets),
+                            seriesColor(i),
+                          ),
+                        )}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <Text size="sm" c="yellow.8">
+                      表示できる価格データがありません。
+                    </Text>
+                  );
+                })()}
+              </SectionCard>
+
+              <SectionCard title="リターン・リスク統計（年率）">
+                {analysis.stats.length > 0 ? (
+                  <>
+                    <Table striped highlightOnHover maw={720}>
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>資産</Table.Th>
+                          <Table.Th>平均リターン</Table.Th>
+                          <Table.Th>EMA リターン</Table.Th>
+                          <Table.Th>年率ボラティリティ（リスク）</Table.Th>
+                          <Table.Th>シャープレシオ</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {analysis.stats.map((s) => {
+                          const fmtPct = (v: number | null) =>
+                            v === null || v === undefined ? '—' : `${(v * 100).toFixed(2)}%`;
+                          const fmtRatio = (v: number | null) =>
+                            v === null || v === undefined ? '—' : v.toFixed(2);
+                          return (
+                            <Table.Tr key={s.asset_id}>
+                              <Table.Td fw={600}>{assetLabel(s.asset_id, assets?.assets)}</Table.Td>
+                              <Table.Td>{fmtPct(s.mean_annual_return)}</Table.Td>
+                              <Table.Td>{fmtPct(s.ema_annual_return)}</Table.Td>
+                              <Table.Td>{fmtPct(s.annual_volatility)}</Table.Td>
+                              <Table.Td>{fmtRatio(s.sharpe_ratio)}</Table.Td>
+                            </Table.Tr>
+                          );
+                        })}
+                      </Table.Tbody>
+                    </Table>
+                    <Text size="sm" c="dimmed">
+                      平均リターンは観測期間の幾何加重平均、EMA
+                      リターンは直近を重視した指数加重平均（500日）の年率値です。 リスクフリー金利は
+                      0%
+                      としてシャープレシオを計算しています。将来の成果を保証するものではありません。
+                    </Text>
+                  </>
                 ) : (
-                  <p className="warning-text">表示できる価格データがありません。</p>
-                );
-              })()}
+                  <Text size="sm" c="yellow.8">
+                    表示できるリターン統計がありません。
+                  </Text>
+                )}
+              </SectionCard>
 
-              <h3>リターン・リスク統計（年率）</h3>
-              {analysis.stats.length > 0 ? (
-                <table className="result-table">
-                  <thead>
-                    <tr>
-                      <th>資産</th>
-                      <th>平均リターン</th>
-                      <th>EMA リターン</th>
-                      <th>年率ボラティリティ（リスク）</th>
-                      <th>シャープレシオ</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {analysis.stats.map((s) => {
-                      const fmtPct = (v: number | null) =>
-                        v === null || v === undefined ? '—' : `${(v * 100).toFixed(2)}%`;
-                      const fmtRatio = (v: number | null) =>
-                        v === null || v === undefined ? '—' : v.toFixed(2);
-                      return (
-                        <tr key={s.asset_id}>
-                          <td>{assetLabel(s.asset_id, assets?.assets)}</td>
-                          <td>{fmtPct(s.mean_annual_return)}</td>
-                          <td>{fmtPct(s.ema_annual_return)}</td>
-                          <td>{fmtPct(s.annual_volatility)}</td>
-                          <td>{fmtRatio(s.sharpe_ratio)}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              ) : (
-                <p className="warning-text">表示できるリターン統計がありません。</p>
-              )}
-              <p className="hint-text">
-                平均リターンは観測期間の幾何加重平均、EMA リターンは直近を重視した指数加重平均（500日）の年率値です。
-                リスクフリー金利は 0% としてシャープレシオを計算しています。将来の成果を保証するものではありません。
-              </p>
+              <SectionCard title="累積リターン">
+                {(() => {
+                  const { rows } = seriesMatrix(analysis.cumulative);
+                  return rows.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={320}>
+                      <LineChart data={rows} margin={CHART_MARGIN}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="date" />
+                        <YAxis domain={['auto', 'auto']} tickFormatter={percentTick} />
+                        <Tooltip />
+                        <Legend />
+                        {analysis.cumulative.map((s, i) =>
+                          seriesLine(
+                            s.asset_id,
+                            assetLabel(s.asset_id, assets?.assets),
+                            seriesColor(i),
+                          ),
+                        )}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <Text size="sm" c="yellow.8">
+                      表示できる累積リターンがありません。
+                    </Text>
+                  );
+                })()}
+              </SectionCard>
 
-              <h3>累積リターン</h3>
-              {(() => {
-                const { rows } = seriesMatrix(analysis.cumulative);
-                return rows.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={320}>
-                    <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" />
-                      <YAxis domain={['auto', 'auto']} />
-                      <Tooltip />
-                      <Legend />
-                      {analysis.cumulative.map((s, i) => seriesLine(s.asset_id, s, COLORS[i % COLORS.length]))}
-                    </LineChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <p className="warning-text">表示できる累積リターンがありません。</p>
-                );
-              })()}
+              <SectionCard title={`ローリングボラティリティ（窓 ${analysis.window} 日・年率）`}>
+                {(() => {
+                  const { rows } = seriesMatrix(analysis.rolling_volatility);
+                  return rows.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={320}>
+                      <LineChart data={rows} margin={CHART_MARGIN}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="date" />
+                        <YAxis domain={['auto', 'auto']} tickFormatter={percentTick} />
+                        <Tooltip />
+                        <Legend />
+                        {analysis.rolling_volatility.map((s, i) =>
+                          seriesLine(
+                            s.asset_id,
+                            assetLabel(s.asset_id, assets?.assets),
+                            seriesColor(i),
+                          ),
+                        )}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <Text size="sm" c="yellow.8">
+                      表示できるローリングボラティリティがありません。
+                    </Text>
+                  );
+                })()}
+              </SectionCard>
 
-              <h3>ローリングボラティリティ（窓 {analysis.window} 日・年率）</h3>
-              {(() => {
-                const { rows } = seriesMatrix(analysis.rolling_volatility);
-                return rows.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={320}>
-                    <LineChart data={rows} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" />
-                      <YAxis domain={['auto', 'auto']} />
-                      <Tooltip />
-                      <Legend />
-                      {analysis.rolling_volatility.map((s, i) =>
-                        seriesLine(s.asset_id, s, COLORS[i % COLORS.length]),
-                      )}
-                    </LineChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <p className="warning-text">表示できるローリングボラティリティがありません。</p>
-                );
-              })()}
-
-              <h3>相関（{analysis.assets_used.length}資産）</h3>
-              {analysis.correlation.assets.length > 0 ? (
-                <table className="corr-table">
-                  <thead>
-                    <tr className="corr-header-row">
-                      <th />
-                      {analysis.correlation.assets.map((a) => (
-                        <th key={a}>{assetLabel(a, assets?.assets)}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {analysis.correlation.assets.map((rowAsset, i) => (
-                      <tr key={rowAsset}>
-                        <th>{assetLabel(rowAsset, assets?.assets)}</th>
-                        {analysis.correlation.matrix[i]?.map((v, j) => (
-                          <td
-                            key={`${rowAsset}-${analysis.correlation.assets[j] ?? j}`}
-                            className={`corr-cell ${corrColorClass(v)}`}
-                            style={{ backgroundColor: corrColor(v) }}
-                            title={v === null ? '欠損' : v.toFixed(3)}
-                          >
-                            {v === null ? '—' : v.toFixed(2)}
-                          </td>
+              <SectionCard title={`相関（${analysis.assets_used.length}資産）`}>
+                {analysis.correlation.assets.length > 0 ? (
+                  <Box style={{ overflowX: 'auto' }} maw={760}>
+                    <Table withTableBorder horizontalSpacing="xs" verticalSpacing="xs">
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th />
+                          {analysis.correlation.assets.map((a) => (
+                            <Table.Th key={a} style={{ whiteSpace: 'nowrap' }}>
+                              {assetLabel(a, assets?.assets)}
+                            </Table.Th>
+                          ))}
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {analysis.correlation.assets.map((rowAsset, i) => (
+                          <Table.Tr key={rowAsset}>
+                            <Table.Th style={{ whiteSpace: 'nowrap' }}>
+                              {assetLabel(rowAsset, assets?.assets)}
+                            </Table.Th>
+                            {analysis.correlation.matrix[i]?.map((v, j) => (
+                              <Table.Td
+                                key={`${rowAsset}-${analysis.correlation.assets[j] ?? j}`}
+                                style={{
+                                  backgroundColor: corrColor(v),
+                                  color: corrTextColor(v),
+                                  fontWeight: 600,
+                                  textAlign: 'center',
+                                  minWidth: '5rem',
+                                }}
+                                title={v === null ? '欠損' : v.toFixed(3)}
+                              >
+                                {v === null ? '—' : v.toFixed(2)}
+                              </Table.Td>
+                            ))}
+                          </Table.Tr>
                         ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <p className="warning-text">相関の表示データがありません。</p>
-              )}
-              <p className="hint-text">
-                相関は各資産のリターン系列から計算します。欠損セルは計算に使える共通データがないことを示します。
-              </p>
+                      </Table.Tbody>
+                    </Table>
+                  </Box>
+                ) : (
+                  <Text size="sm" c="yellow.8">
+                    相関の表示データがありません。
+                  </Text>
+                )}
+                <Text size="sm" c="dimmed">
+                  相関は各資産のリターン系列から計算します。欠損セルは計算に使える共通データがないことを示します。
+                </Text>
+              </SectionCard>
             </>
           )}
         </>
       )}
-    </section>
+    </>
   );
 }

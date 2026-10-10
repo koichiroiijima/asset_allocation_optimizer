@@ -1,19 +1,22 @@
 # 引き継ぎドキュメント（handover）
 
-最終更新: 2026-10-03
-ブランチ: `opencode/work`（`origin/opencode/work` より数コミット先行・**未 push**）
+最終更新: 2026-10-10
+ブランチ: `new_gui`（`opencode/work` は `main` へマージ済み・push 済み）
 
 このドキュメントは**セッション引き継ぎ用のエントリポイント**。次のセッションはこのファイルから読み始めること。
+
+> **直近のタスク（GUI 刷新）**: [`docs/gui_refresh_plan.md`](docs/gui_refresh_plan.md) の計画に基づき実装済み（Mantine 8・サイドバー型・共有部品化・チェックボックス式）。未確認はブラウザ実機の目視確認のみ（環境に Chrome 無し）。
 
 ---
 
 ## 1. まず読む順序
 
 1. 本ファイル（現状・次タスク・検証コマンド）
-2. [`CLAUDE.md`](CLAUDE.md) — 作業規範と実装状況サマリ（2026-10-03 時点）
-3. [`docs/TODO.md`](docs/TODO.md) — タスク別の進捗（[x]/[~]/[ ]）
-4. [`docs/design.md`](docs/design.md) — 詳細設計と **§12 決定履歴**（過去の判断はここで確認）
-5. [`README.md`](README.md) / [`backend/README.md`](backend/README.md) — セットアップ・起動・API の使い方
+2. [`docs/gui_refresh_plan.md`](docs/gui_refresh_plan.md) — **直近: GUI 刷新の実装計画と実装内容**
+3. [`CLAUDE.md`](CLAUDE.md) — 作業規範と実装状況サマリ（2026-10-03 時点）
+4. [`docs/TODO.md`](docs/TODO.md) — タスク別の進捗（[x]/[~]/[ ]）
+5. [`docs/design.md`](docs/design.md) — 詳細設計と **§12 決定履歴**（過去の判断はここで確認）
+6. [`README.md`](README.md) / [`backend/README.md`](backend/README.md) — セットアップ・起動・API の使い方
 
 ---
 
@@ -28,7 +31,7 @@
 - **リターン計算**: `backend/app/domain/returns.py`（単純/対数/累積・年率換算・リサンプリング・ローリングボラ・相関・統計）。欠損は補完しない。
 - **最適化**: `backend/app/optimization/service.py` の `static_allocation` ＋ `POST /api/optimizations`（同期・`start`/`end` でルックアヘッド回避）。Black-Litterman は**絶対ビュー**対応（`omega="default"/"idzorek"`・τ・リスク回避度・市場ウェイト設定可）。`omega="default"` では τ は結果に影響しない（PyPortfolioOpt 仕様・テスト済み）。
 - **バックテスト**: `backend/app/backtest/engine.py` ＋ `POST /api/backtests`。次営業日約定でルックアヘッド回避、リバランス頻度 D/W/M/Y、**リバランス時再最適化**（`reoptimize`/`optimization_params`、失敗時は直前ウェイト継続＋警告）。BL も再最適化に使用可。
-- **フロントエンド 6 画面**: データ / 分析 / 最適化 / 最適化（BL）/ バックテスト / 比較・保存（Recharts・`frontend/src/pages/`）。モード切替はヘッダー（基準通貨バッジ付き）で **localStorage に永続化**。未取得資産は選択肢に残して disabled 表示。目標値入力は常時表示＋disabled 切替。BL 確信度は**常に入力可能**で、入力すると ω を Idzorek へ自動切替（ω=default では未使用）。結果見出しに基準通貨、データ画面に通貨列、比較画面にモード列。
+- **フロントエンド 6 画面**: データ / 分析 / 最適化 / 最適化（BL）/ バックテスト / 比較・保存。**Mantine 8（ライト固定）のサイドバー型レイアウト**（`AppShell`・左ナビ6タブ＋ヘッダー）。モード切替はヘッダー（セグメント型スイッチ＋基準通貨バッジ）で **localStorage に永続化**。対象資産の複数選択は**チェックボックス式**（未取得資産は選択肢に残して disabled 表示）。目標値入力は常時表示＋disabled 切替。BL 確信度は**常に入力可能**で、入力すると ω を Idzorek へ自動切替（ω=default では未使用）。結果見出しに基準通貨、データ画面に通貨列、比較画面にモード列。グラフは Recharts。GUI 刷新の計画と実装内容は [`docs/gui_refresh_plan.md`](docs/gui_refresh_plan.md)。
 - **開発サーバー**: `make start` / `make stop`（`scripts/start.sh` / `scripts/stop.sh`・バックグラウンド・ログは `logs/`、PID は `.run/`）。`make dev` はフォアグラウンド並列起動。`start.sh` は起動前にポート空きを確認し、起動後に `GET /api/health`（backend）と `/`（frontend）の応答を検証（失敗時は起動済みを停止して非ゼロ終了・ログ末尾を表示）。`stop.sh` は SIGTERM 不応答時に最大5秒後に SIGKILL へエスカレートし、呼び出し元シェルを巻き込まないよう祖先 PID を除外する。
 
 ### テスト数（実測）

@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AnalysisScreen } from './AnalysisScreen';
+import { render } from '../../tests/test-utils';
 
 const ASSETS_BODY = {
   assets: [
@@ -65,7 +66,13 @@ const ANALYSIS_BODY = {
   ],
   cumulative: [],
   rolling_volatility: [],
-  correlation: { assets: ['us_equity', 'us_bond'], matrix: [[1, null], [null, 1]] },
+  correlation: {
+    assets: ['us_equity', 'us_bond'],
+    matrix: [
+      [1, null],
+      [null, 1],
+    ],
+  },
   stats: [
     {
       asset_id: 'us_equity',
